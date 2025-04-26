@@ -1,0 +1,14 @@
+### Objective:
+
+I want to create a personal caretaker with the following objectives. 
+1. To track my activities.
+2. To be usable as a journaling tool.
+3. To track my tasks. 
+4. It can also help to maintain my mental health, try to make some converstations with me.
+It should have the capability to chat with me, know my activites. It should also show me the reality rather than gaslighting. 
+It can also have a section where i can add my interests like in technical concepts. 
+
+### Ai model:
+Use the gemini genai library and gemini-2.0-flash model. 
+Use html, js and css alone. 
+Try to use some json file for storing the data. 
