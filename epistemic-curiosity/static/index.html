@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Infinite Scroll Thoughts</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Add Marked.js library -->
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/15.0.7/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+    <header>
+        <h1>Stream of Consciousness</h1>
+        <p>Random thoughts, generated infinitely.</p>
+    </header>
+
+    <main id="posts-container">
+        <!-- Posts will be loaded here -->
+    </main>
+
+    <div id="loading-indicator" class="loading hidden">
+        Generating deep thoughts... (this may take a moment)
+    </div>
+
+    <footer>
+        Powered by AI & Cloud Run.
+    </footer>
+
+    <!-- Your script, AFTER marked.js -->
+    <script src="script.js"></script>
+</body>
+</html>

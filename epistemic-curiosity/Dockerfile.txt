@@ -1,0 +1,17 @@
+# Use the official lightweight Python image.
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED True
+
+ENV APP_HOME /app
+WORKDIR $APP_HOME
+# Copy the entire project context (app.py, requirements.txt, static/ folder)
+COPY . ./
+
+# Install dependencies.
+RUN pip install --no-cache-dir -r requirements.txt
+
+ENV PORT 8080
+
+# Run the web server using gunicorn
+CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 --preload app:app

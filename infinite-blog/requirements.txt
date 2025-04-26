@@ -1,0 +1,4 @@
+quart==0.18.0
+google-cloud-firestore==3.7.0
+google-generativeai==0.0.3
+hypercorn==0.14.0
