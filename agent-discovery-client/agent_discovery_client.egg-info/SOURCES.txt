@@ -1,0 +1,9 @@
+README.md
+setup.py
+agent_discovery_client/__init__.py
+agent_discovery_client/agent_discovery_client.py
+agent_discovery_client.egg-info/PKG-INFO
+agent_discovery_client.egg-info/SOURCES.txt
+agent_discovery_client.egg-info/dependency_links.txt
+agent_discovery_client.egg-info/requires.txt
+agent_discovery_client.egg-info/top_level.txt
