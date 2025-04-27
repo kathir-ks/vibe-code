@@ -1,0 +1,1062 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Personal Caretaker</title>
+    <style>
+        :root {
+            --primary-color: #4a90e2;
+            --secondary-color: #50c878;
+            --background-color: #f9f9f9;
+            --card-color: #ffffff;
+            --text-color: #333333;
+            --border-color: #e0e0e0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: var(--background-color);
+            color: var(--text-color);
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 20px 0;
+            text-align: center;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        h1, h2, h3 {
+            margin: 0;
+        }
+
+        .tabs {
+            display: flex;
+            background-color: var(--card-color);
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        .tab-button {
+            flex: 1;
+            padding: 15px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: background-color 0.3s;
+            border-bottom: 3px solid transparent;
+        }
+
+        .tab-button.active {
+            background-color: var(--card-color);
+            color: var(--primary-color);
+            border-bottom: 3px solid var(--primary-color);
+        }
+
+        .tab-content {
+            display: none;
+            background-color: var(--card-color);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .card {
+            background-color: var(--card-color);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+        }
+
+        input[type="text"],
+        input[type="date"],
+        input[type="time"],
+        textarea,
+        select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 16px;
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        button {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 10px 15px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #3a80d2;
+        }
+
+        .task-list, .activity-list, .journal-list {
+            list-style-type: none;
+            padding: 0;
+        }
+
+        .task-item, .activity-item, .journal-item {
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            background-color: #f5f5f5;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .task-item.completed {
+            background-color: #e6f7e6;
+            text-decoration: line-through;
+            color: #777;
+        }
+
+        .delete-btn {
+            background-color: #e74c3c;
+            margin-left: 10px;
+        }
+
+        .delete-btn:hover {
+            background-color: #c0392b;
+        }
+
+        .complete-btn {
+            background-color: var(--secondary-color);
+            margin-left: 10px;
+        }
+
+        .complete-btn:hover {
+            background-color: #40a868;
+        }
+
+        .chat-container {
+            display: flex;
+            flex-direction: column;
+            height: 400px;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+            background-color: #f5f5f5;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+
+        .message {
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+            max-width: 70%;
+        }
+
+        .user-message {
+            background-color: var(--primary-color);
+            color: white;
+            align-self: flex-end;
+            margin-left: auto;
+        }
+
+        .ai-message {
+            background-color: #e0e0e0;
+            color: var(--text-color);
+            align-self: flex-start;
+        }
+
+        .chat-input {
+            display: flex;
+        }
+
+        .chat-input input {
+            flex: 1;
+            margin-right: 10px;
+        }
+
+        .interests-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .interest-tag {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 20px;
+            display: inline-flex;
+            align-items: center;
+        }
+
+        .interest-tag button {
+            background: none;
+            border: none;
+            color: white;
+            cursor: pointer;
+            margin-left: 5px;
+            padding: 0;
+            font-size: 14px;
+        }
+        
+        .stats-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .stat-card {
+            background-color: var(--card-color);
+            border-radius: 8px;
+            padding: 15px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+        
+        .stat-number {
+            font-size: 32px;
+            font-weight: bold;
+            color: var(--primary-color);
+            margin: 10px 0;
+        }
+        
+        .stat-label {
+            color: #777;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Personal Caretaker</h1>
+        <p id="current-date"></p>
+    </header>
+
+    <div class="container">
+        <div class="tabs">
+            <button class="tab-button active" data-tab="dashboard">Dashboard</button>
+            <button class="tab-button" data-tab="activities">Activities</button>
+            <button class="tab-button" data-tab="journal">Journal</button>
+            <button class="tab-button" data-tab="tasks">Tasks</button>
+            <button class="tab-button" data-tab="chat">Chat</button>
+            <button class="tab-button" data-tab="interests">Interests</button>
+        </div>
+
+        <!-- Dashboard Tab -->
+        <div id="dashboard" class="tab-content active">
+            <h2>Welcome back!</h2>
+            <div class="card">
+                <h3>Quick Summary</h3>
+                <div class="stats-container">
+                    <div class="stat-card">
+                        <div class="stat-label">Activities Today</div>
+                        <div id="activities-count" class="stat-number">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Pending Tasks</div>
+                        <div id="tasks-count" class="stat-number">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Journal Entries</div>
+                        <div id="journal-count" class="stat-number">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Mood Average</div>
+                        <div id="mood-average" class="stat-number">-</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3>Recent Activities</h3>
+                <ul id="recent-activities" class="activity-list">
+                    <!-- Activities will be added here -->
+                </ul>
+            </div>
+            
+            <div class="card">
+                <h3>Upcoming Tasks</h3>
+                <ul id="upcoming-tasks" class="task-list">
+                    <!-- Tasks will be added here -->
+                </ul>
+            </div>
+        </div>
+
+        <!-- Activities Tab -->
+        <div id="activities" class="tab-content">
+            <div class="card">
+                <h3>Add New Activity</h3>
+                <form id="activity-form">
+                    <div class="form-group">
+                        <label for="activity-name">Activity Name</label>
+                        <input type="text" id="activity-name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="activity-date">Date</label>
+                        <input type="date" id="activity-date" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="activity-time">Time</label>
+                        <input type="time" id="activity-time" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="activity-duration">Duration (minutes)</label>
+                        <input type="number" id="activity-duration" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="activity-category">Category</label>
+                        <select id="activity-category" required>
+                            <option value="">Select a category</option>
+                            <option value="Work">Work</option>
+                            <option value="Exercise">Exercise</option>
+                            <option value="Leisure">Leisure</option>
+                            <option value="Social">Social</option>
+                            <option value="Self-care">Self-care</option>
+                            <option value="Learning">Learning</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="activity-notes">Notes</label>
+                        <textarea id="activity-notes"></textarea>
+                    </div>
+                    <button type="submit">Add Activity</button>
+                </form>
+            </div>
+            
+            <div class="card">
+                <h3>Activity History</h3>
+                <ul id="activity-history" class="activity-list">
+                    <!-- Activities will be added here -->
+                </ul>
+            </div>
+        </div>
+
+        <!-- Journal Tab -->
+        <div id="journal" class="tab-content">
+            <div class="card">
+                <h3>Add Journal Entry</h3>
+                <form id="journal-form">
+                    <div class="form-group">
+                        <label for="journal-date">Date</label>
+                        <input type="date" id="journal-date" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="journal-title">Title</label>
+                        <input type="text" id="journal-title" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="journal-mood">Mood</label>
+                        <select id="journal-mood" required>
+                            <option value="">Select your mood</option>
+                            <option value="5">Amazing (5)</option>
+                            <option value="4">Good (4)</option>
+                            <option value="3">Neutral (3)</option>
+                            <option value="2">Not Great (2)</option>
+                            <option value="1">Terrible (1)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="journal-content">Content</label>
+                        <textarea id="journal-content" required></textarea>
+                    </div>
+                    <button type="submit">Save Entry</button>
+                </form>
+            </div>
+            
+            <div class="card">
+                <h3>Journal Entries</h3>
+                <ul id="journal-entries" class="journal-list">
+                    <!-- Journal entries will be added here -->
+                </ul>
+            </div>
+        </div>
+
+        <!-- Tasks Tab -->
+        <div id="tasks" class="tab-content">
+            <div class="card">
+                <h3>Add New Task</h3>
+                <form id="task-form">
+                    <div class="form-group">
+                        <label for="task-title">Task Title</label>
+                        <input type="text" id="task-title" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="task-description">Description</label>
+                        <textarea id="task-description"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="task-due-date">Due Date</label>
+                        <input type="date" id="task-due-date">
+                    </div>
+                    <div class="form-group">
+                        <label for="task-priority">Priority</label>
+                        <select id="task-priority" required>
+                            <option value="Low">Low</option>
+                            <option value="Medium" selected>Medium</option>
+                            <option value="High">High</option>
+                        </select>
+                    </div>
+                    <button type="submit">Add Task</button>
+                </form>
+            </div>
+            
+            <div class="card">
+                <h3>Task List</h3>
+                <ul id="task-list" class="task-list">
+                    <!-- Tasks will be added here -->
+                </ul>
+            </div>
+        </div>
+
+        <!-- Chat Tab -->
+        <div id="chat" class="tab-content">
+            <div class="card">
+                <h3>Chat with Your Caretaker</h3>
+                <div class="chat-container">
+                    <div id="chat-messages" class="chat-messages">
+                        <!-- Messages will be added here -->
+                        <div class="message ai-message">
+                            Hello! I'm your personal caretaker assistant. How are you feeling today? What can I help you with?
+                        </div>
+                    </div>
+                    <div class="chat-input">
+                        <input type="text" id="chat-input" placeholder="Type your message here...">
+                        <button id="send-message">Send</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Interests Tab -->
+        <div id="interests" class="tab-content">
+            <div class="card">
+                <h3>Add New Interest</h3>
+                <form id="interest-form">
+                    <div class="form-group">
+                        <label for="interest-name">Interest Name</label>
+                        <input type="text" id="interest-name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="interest-category">Category</label>
+                        <select id="interest-category" required>
+                            <option value="">Select a category</option>
+                            <option value="Technical">Technical</option>
+                            <option value="Creative">Creative</option>
+                            <option value="Physical">Physical</option>
+                            <option value="Educational">Educational</option>
+                            <option value="Entertainment">Entertainment</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="interest-notes">Notes</label>
+                        <textarea id="interest-notes"></textarea>
+                    </div>
+                    <button type="submit">Add Interest</button>
+                </form>
+            </div>
+            
+            <div class="card">
+                <h3>Your Interests</h3>
+                <div id="interests-container" class="interests-container">
+                    <!-- Interests will be added here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Handle date display
+        const updateCurrentDate = () => {
+            const now = new Date();
+            const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+            document.getElementById('current-date').textContent = now.toLocaleDateString('en-US', options);
+        };
+        updateCurrentDate();
+
+        // Tab navigation
+        const tabButtons = document.querySelectorAll('.tab-button');
+        const tabContents = document.querySelectorAll('.tab-content');
+
+        tabButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                const tabId = button.getAttribute('data-tab');
+                
+                // Hide all tab contents and remove active class from buttons
+                tabContents.forEach(content => content.classList.remove('active'));
+                tabButtons.forEach(btn => btn.classList.remove('active'));
+                
+                // Show selected tab content and add active class to clicked button
+                document.getElementById(tabId).classList.add('active');
+                button.classList.add('active');
+            });
+        });
+
+        // Local storage data management
+        const storage = {
+            save: (key, data) => {
+                localStorage.setItem(key, JSON.stringify(data));
+            },
+            load: (key) => {
+                const data = localStorage.getItem(key);
+                return data ? JSON.parse(data) : null;
+            },
+            initialize: () => {
+                if (!storage.load('activities')) storage.save('activities', []);
+                if (!storage.load('tasks')) storage.save('tasks', []);
+                if (!storage.load('journal')) storage.save('journal', []);
+                if (!storage.load('interests')) storage.save('interests', []);
+                if (!storage.load('chatHistory')) storage.save('chatHistory', []);
+            }
+        };
+
+        // Initialize data in local storage
+        storage.initialize();
+
+        // Activities functionality
+        const activityForm = document.getElementById('activity-form');
+        const activityHistory = document.getElementById('activity-history');
+        const recentActivities = document.getElementById('recent-activities');
+
+        activityForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            
+            const activity = {
+                id: Date.now(),
+                name: document.getElementById('activity-name').value,
+                date: document.getElementById('activity-date').value,
+                time: document.getElementById('activity-time').value,
+                duration: document.getElementById('activity-duration').value,
+                category: document.getElementById('activity-category').value,
+                notes: document.getElementById('activity-notes').value
+            };
+            
+            const activities = storage.load('activities') || [];
+            activities.push(activity);
+            storage.save('activities', activities);
+            
+            renderActivities();
+            updateDashboard();
+            activityForm.reset();
+        });
+
+        function renderActivities() {
+            const activities = storage.load('activities') || [];
+            
+            // Sort activities by date and time (most recent first)
+            activities.sort((a, b) => {
+                const dateA = new Date(`${a.date}T${a.time}`);
+                const dateB = new Date(`${b.date}T${b.time}`);
+                return dateB - dateA;
+            });
+            
+            // Render all activities
+            activityHistory.innerHTML = '';
+            activities.forEach(activity => {
+                const li = document.createElement('li');
+                li.className = 'activity-item';
+                li.innerHTML = `
+                    <div>
+                        <strong>${activity.name}</strong> - ${activity.category}
+                        <div>${activity.date} at ${activity.time}, ${activity.duration} mins</div>
+                        <div>${activity.notes}</div>
+                    </div>
+                    <button class="delete-btn" data-id="${activity.id}">Delete</button>
+                `;
+                activityHistory.appendChild(li);
+            });
+            
+            // Render recent activities (up to 5)
+            recentActivities.innerHTML = '';
+            activities.slice(0, 5).forEach(activity => {
+                const li = document.createElement('li');
+                li.className = 'activity-item';
+                li.innerHTML = `
+                    <div>
+                        <strong>${activity.name}</strong> - ${activity.category}
+                        <div>${activity.date} at ${activity.time}</div>
+                    </div>
+                `;
+                recentActivities.appendChild(li);
+            });
+            
+            // Add event listeners to delete buttons
+            document.querySelectorAll('.activity-item .delete-btn').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    const id = parseInt(e.target.getAttribute('data-id'));
+                    const activities = storage.load('activities') || [];
+                    const updatedActivities = activities.filter(activity => activity.id !== id);
+                    storage.save('activities', updatedActivities);
+                    renderActivities();
+                    updateDashboard();
+                });
+            });
+        }
+
+        // Journal functionality
+        const journalForm = document.getElementById('journal-form');
+        const journalEntries = document.getElementById('journal-entries');
+
+        journalForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            
+            const entry = {
+                id: Date.now(),
+                date: document.getElementById('journal-date').value,
+                title: document.getElementById('journal-title').value,
+                mood: document.getElementById('journal-mood').value,
+                content: document.getElementById('journal-content').value
+            };
+            
+            const journal = storage.load('journal') || [];
+            journal.push(entry);
+            storage.save('journal', journal);
+            
+            renderJournal();
+            updateDashboard();
+            journalForm.reset();
+        });
+
+        function renderJournal() {
+            const journal = storage.load('journal') || [];
+            
+            // Sort journal entries by date (most recent first)
+            journal.sort((a, b) => {
+                return new Date(b.date) - new Date(a.date);
+            });
+            
+            journalEntries.innerHTML = '';
+            journal.forEach(entry => {
+                const li = document.createElement('li');
+                li.className = 'journal-item';
+                li.innerHTML = `
+                    <div>
+                        <strong>${entry.title}</strong> - ${entry.date}
+                        <div>Mood: ${getMoodEmoji(entry.mood)} (${entry.mood}/5)</div>
+                        <div>${entry.content}</div>
+                    </div>
+                    <button class="delete-btn" data-id="${entry.id}">Delete</button>
+                `;
+                journalEntries.appendChild(li);
+            });
+            
+            // Add event listeners to delete buttons
+            document.querySelectorAll('.journal-item .delete-btn').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    const id = parseInt(e.target.getAttribute('data-id'));
+                    const journal = storage.load('journal') || [];
+                    const updatedJournal = journal.filter(entry => entry.id !== id);
+                    storage.save('journal', updatedJournal);
+                    renderJournal();
+                    updateDashboard();
+                });
+            });
+        }
+
+        function getMoodEmoji(mood) {
+            const moods = {
+                '1': '😞',
+                '2': '😐',
+                '3': '🙂',
+                '4': '😊',
+                '5': '😄'
+            };
+            return moods[mood] || '🙂';
+        }
+
+        // Tasks functionality
+        const taskForm = document.getElementById('task-form');
+        const taskList = document.getElementById('task-list');
+        const upcomingTasks = document.getElementById('upcoming-tasks');
+
+        taskForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            
+            const task = {
+                id: Date.now(),
+                title: document.getElementById('task-title').value,
+                description: document.getElementById('task-description').value,
+                dueDate: document.getElementById('task-due-date').value,
+                priority: document.getElementById('task-priority').value,
+                completed: false
+            };
+            
+            const tasks = storage.load('tasks') || [];
+            tasks.push(task);
+            storage.save('tasks', tasks);
+            
+            renderTasks();
+            updateDashboard();
+            taskForm.reset();
+        });
+
+        function renderTasks() {
+            const tasks = storage.load('tasks') || [];
+            
+            // Sort tasks by due date (closest first) and then by priority
+            tasks.sort((a, b) => {
+                // If no due date, put at the end
+                if (!a.dueDate) return 1;
+                if (!b.dueDate) return -1;
+                
+                // Sort by due date
+                const dateComparison = new Date(a.dueDate) - new Date(b.dueDate);
+                if (dateComparison !== 0) return dateComparison;
+                
+                // If same due date, sort by priority
+                const priorityOrder = { 'High': 0, 'Medium': 1, 'Low': 2 };
+                return priorityOrder[a.priority] - priorityOrder[b.priority];
+            });
+            
+            // Render all tasks
+            taskList.innerHTML = '';
+            tasks.forEach(task => {
+                const li = document.createElement('li');
+                li.className = task.completed ? 'task-item completed' : 'task-item';
+                li.innerHTML = `
+                    <div>
+                        <strong>${task.title}</strong>
+                        <div>${task.description}</div>
+                        <div>
+                            ${task.dueDate ? `Due: ${task.dueDate}` : 'No due date'} 
+                            | Priority: ${task.priority}
+                        </div>
+                    </div>
+                    <div>
+                        ${!task.completed ? `<button class="complete-btn" data-id="${task.id}">Complete</button>` : ''}
+                        <button class="delete-btn" data-id="${task.id}">Delete</button>
+                    </div>
+                `;
+                taskList.appendChild(li);
+            });
+            
+            // Render upcoming tasks (incomplete tasks only, up to 5)
+            upcomingTasks.innerHTML = '';
+            const incompleteTasks = tasks.filter(task => !task.completed);
+            incompleteTasks.slice(0, 5).forEach(task => {
+                const li = document.createElement('li');
+                li.className = 'task-item';
+                li.innerHTML = `
+                    <div>
+                        <strong>${task.title}</strong>
+                        <div>${task.dueDate ? `Due: ${task.dueDate}` : 'No due date'} | ${task.priority}</div>
+                    </div>
+                    <button class="complete-btn" data-id="${task.id}">Complete</button>
+                `;
+                upcomingTasks.appendChild(li);
+            });
+            
+            // Add event listeners to buttons
+            document.querySelectorAll('.task-item .delete-btn').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    const id = parseInt(e.target.getAttribute('data-id'));
+                    const tasks = storage.load('tasks') || [];
+                    const updatedTasks = tasks.filter(task => task.id !== id);
+                    storage.save('tasks', updatedTasks);
+                    renderTasks();
+                    updateDashboard();
+                });
+            });
+            
+            document.querySelectorAll('.task-item .complete-btn').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    const id = parseInt(e.target.getAttribute('data-id'));
+                    const tasks = storage.load('tasks') || [];
+                    const updatedTasks = tasks.map(task => {
+                        if (task.id === id) {
+                            return { ...task, completed: true };
+                        }
+                        return task;
+                    });
+                    storage.save('tasks', updatedTasks);
+                    renderTasks();
+                    updateDashboard();
+                });
+            });
+        }
+
+        // Interests functionality
+        const interestForm = document.getElementById('interest-form');
+        const interestsContainer = document.getElementById('interests-container');
+
+        interestForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            
+            const interest = {
+                id: Date.now(),
+                name: document.getElementById('interest-name').value,
+                category: document.getElementById('interest-category').value,
+                notes: document.getElementById('interest-notes').value
+            };
+            
+            const interests = storage.load('interests') || [];
+            interests.push(interest);
+            storage.save('interests', interests);
+            
+            renderInterests();
+            interestForm.reset();
+        });
+
+        function renderInterests() {
+            const interests = storage.load('interests') || [];
+            
+            interestsContainer.innerHTML = '';
+            if (interests.length === 0) {
+                interestsContainer.innerHTML = '<p>No interests added yet.</p>';
+            } else {
+                interests.forEach(interest => {
+                    const div = document.createElement('div');
+                    div.className = 'interest-tag';
+                    div.innerHTML = `
+                        ${interest.name} (${interest.category})
+                        <button data-id="${interest.id}" title="${interest.notes}">×</button>
+                    `;
+                    interestsContainer.appendChild(div);
+                });
+            }
+            
+            // Add event listeners to delete buttons
+            document.querySelectorAll('.interest-tag button').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    const id = parseInt(e.target.getAttribute('data-id'));
+                    const interests = storage.load('interests') || [];
+                    const updatedInterests = interests.filter(interest => interest.id !== id);
+                    storage.save('interests', updatedInterests);
+                    renderInterests();
+                });
+            });
+        }
+
+        // Chat functionality
+        const chatMessages = document.getElementById('chat-messages');
+        const chatInput = document.getElementById('chat-input');
+        const sendButton = document.getElementById('send-message');
+
+        function sendMessage() {
+            const message = chatInput.value.trim();
+            if (!message) return;
+            
+            // Add user message to chat
+            appendMessage(message, 'user');
+            
+            // Get AI response
+            getAIResponse(message);
+            
+            // Clear input
+            chatInput.value = '';
+        }
+
+        function appendMessage(message, sender) {
+            const div = document.createElement('div');
+            div.className = `message ${sender}-message`;
+            div.textContent = message;
+            chatMessages.appendChild(div);
+            
+            // Scroll to bottom
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            
+            // Save message to history
+            const chatHistory = storage.load('chatHistory') || [];
+            chatHistory.push({
+                sender,
+                message,
+                timestamp: new Date().toISOString()
+            });
+            storage.save('chatHistory', chatHistory);
+        }
+
+        async function getAIResponse(userMessage) {
+            // Display typing indicator
+            const typingIndicator = document.createElement('div');
+            typingIndicator.className = 'message ai-message typing';
+            typingIndicator.textContent = 'Thinking...';
+            chatMessages.appendChild(typingIndicator);
+            
+            try {
+                // Here you would integrate with the Gemini API
+                // Since we can't actually call the API in this demo, we'll simulate a response
+                
+                // For a real implementation, you would use the genai library like this:
+                /*
+                const { GoogleGenerativeAI } = await import("https://cdn.jsdelivr.net/npm/@google/generative-ai@0.1.1/+esm");
+                const genAI = new GoogleGenerativeAI(API_KEY);
+                const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+                
+                // Get user context from your app data
+                const activities = storage.load('activities') || [];
+                const tasks = storage.load('tasks') || [];
+                const journal = storage.load('journal') || [];
+                const interests = storage.load('interests') || [];
+                
+                // Create a context-aware prompt
+                const contextPrompt = `
+                  You are a personal caretaker assistant. Your goal is to help the user track activities, 
+                  maintain mental health, and manage tasks. Be supportive but realistic.
+                  
+                  Recent activities: ${JSON.stringify(activities.slice(0, 3))}
+                  Pending tasks: ${JSON.stringify(tasks.filter(t => !t.completed).slice(0, 3))}
+                  Recent journal entries: ${JSON.stringify(journal.slice(0, 2))}
+                  User interests: ${JSON.stringify(interests)}
+                  
+                  User message: ${userMessage}
+                `;
+                
+                const result = await model.generateContent(contextPrompt);
+                const response = result.response.text();
+                */
+                
+                // For this demo, we'll simulate a response
+                await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API delay
+                
+                // Remove typing indicator
+                chatMessages.removeChild(typingIndicator);
+                
+                let response;
+                if (userMessage.toLowerCase().includes('how are you')) {
+                    response = "I'm doing well, thank you for asking! More importantly, how are you feeling today?";
+                } else if (userMessage.toLowerCase().includes('help me with')) {
+                    response = "I'd be happy to help you with that. Could you provide more details so I can assist you better?";
+                } else if (userMessage.toLowerCase().includes('feeling') || userMessage.toLowerCase().includes('mood')) {
+                    response = "Thank you for sharing how you're feeling. Remember it's okay to have ups and downs. Would you like to add this to your journal to track your mood over time?";
+                } else if (userMessage.toLowerCase().includes('task') || userMessage.toLowerCase().includes('todo')) {
+                    response = "I can help you manage your tasks. Would you like me to add a new task for you or check your existing ones?";
+                } else if (userMessage.toLowerCase().includes('activity') || userMessage.toLowerCase().includes('do')) {
+                    response = "Tracking your activities helps create a balanced lifestyle. Would you like to add a new activity or review your recent ones?";
+                } else {
+                    response = "I'm here to support you. I can help track your activities, manage your tasks, assist with journaling, or just chat. What would you like to focus on right now?";
+                }
+                
+                // Add AI response to chat
+                appendMessage(response, 'ai');
+                
+            } catch (error) {
+                // Remove typing indicator
+                chatMessages.removeChild(typingIndicator);
+                
+                // Add error message
+                appendMessage("I'm having trouble connecting right now. Please try again later.", 'ai');
+                console.error('Error getting AI response:', error);
+            }
+        }
+
+        sendButton.addEventListener('click', sendMessage);
+        chatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+        
+        // Function to load chat history
+        function loadChatHistory() {
+            const chatHistory = storage.load('chatHistory') || [];
+            
+            // Only display the last 20 messages to prevent overcrowding
+            const recentMessages = chatHistory.slice(-20);
+            
+            chatMessages.innerHTML = ''; // Clear existing messages
+            recentMessages.forEach(msg => {
+                appendMessage(msg.message, msg.sender);
+            });
+            
+            // If no history, add welcome message
+            if (recentMessages.length === 0) {
+                appendMessage("Hello! I'm your personal caretaker assistant. How are you feeling today? What can I help you with?", 'ai');
+            }
+        }
+
+        // Dashboard updates
+        function updateDashboard() {
+            const activities = storage.load('activities') || [];
+            const tasks = storage.load('tasks') || [];
+            const journal = storage.load('journal') || [];
+            
+            // Count today's activities
+            const today = new Date().toISOString().split('T')[0];
+            const activitiesToday = activities.filter(a => a.date === today).length;
+            
+            // Count pending tasks
+            const pendingTasks = tasks.filter(t => !t.completed).length;
+            
+            // Calculate mood average
+            let moodSum = 0;
+            let moodCount = 0;
+            journal.forEach(entry => {
+                if (entry.mood) {
+                    moodSum += parseInt(entry.mood);
+                    moodCount++;
+                }
+            });
+            const moodAverage = moodCount > 0 ? (moodSum / moodCount).toFixed(1) : '-';
+            
+            // Update the dashboard
+            document.getElementById('activities-count').textContent = activitiesToday;
+            document.getElementById('tasks-count').textContent = pendingTasks;
+            document.getElementById('journal-count').textContent = journal.length;
+            document.getElementById('mood-average').textContent = moodAverage;
+        }
+
+        // Initialize the application
+        function initializeApp() {
+            // Set today's date for forms
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('activity-date').value = today;
+            document.getElementById('journal-date').value = today;
+            
+            // Render all data
+            renderActivities();
+            renderJournal();
+            renderTasks();
+            renderInterests();
+            loadChatHistory();
+            
+            // Update dashboard stats
+            updateDashboard();
+        }
+
+        // Run initialization
+        initializeApp();
+    </script>
+</body>
+</html>

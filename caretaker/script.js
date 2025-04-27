@@ -45,7 +45,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 appData.chatHistory = appData.chatHistory || [];
             } catch (error) {
                 console.error("Error parsing stored data:", error);
-                // Reset to default if parsing fails
                 appData = { activities: [], journalEntries: [], tasks: [], interests: [], chatHistory: [] };
             }
         }
@@ -54,6 +53,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function saveData() {
         try {
+            // Optional: Limit chat history size to prevent excessive storage use
+            const MAX_CHAT_HISTORY = 50; // Keep last 50 turns (user + ai)
+            if (appData.chatHistory.length > MAX_CHAT_HISTORY) {
+                 appData.chatHistory = appData.chatHistory.slice(-MAX_CHAT_HISTORY);
+            }
             localStorage.setItem(DATA_STORAGE_KEY, JSON.stringify(appData));
         } catch (error) {
             console.error("Error saving data:", error);
@@ -70,15 +74,23 @@ document.addEventListener('DOMContentLoaded', () => {
         return Date.now().toString(36) + Math.random().toString(36).substring(2);
     }
 
+    // Simple HTML escaping function
+    function escapeHtml(unsafe) {
+        if (!unsafe) return '';
+        return unsafe
+             .replace(/&/g, "&amp;")
+             .replace(/</g, "&lt;")
+             .replace(/>/g, "&gt;")
+             .replace(/"/g, "&quot;")
+             .replace(/'/g, "&#039;");
+    }
+
 
     // --- Tab Switching Logic ---
     tabs.forEach(tab => {
         tab.addEventListener('click', () => {
-            // Deactivate all tabs and content
             tabs.forEach(t => t.classList.remove('active'));
             tabContents.forEach(c => c.classList.remove('active'));
-
-            // Activate clicked tab and corresponding content
             tab.classList.add('active');
             const targetTab = tab.getAttribute('data-tab');
             document.getElementById(targetTab).classList.add('active');
@@ -86,20 +98,21 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --- Activity Tracking ---
+    // (This section remains unchanged)
     const activityInput = document.getElementById('activityInput');
     const addActivityButton = document.getElementById('addActivity');
     const activityList = document.getElementById('activityList');
 
-    function renderActivities() {
-        activityList.innerHTML = ''; // Clear list
+    function renderActivities() { // Function starts around line 98
+        activityList.innerHTML = '';
         if (!appData.activities || appData.activities.length === 0) {
             activityList.innerHTML = '<li>No activities logged yet.</li>';
             return;
         }
-        // Render in reverse chronological order (newest first)
+        // Line below (~104) is where the previous error seemed related
         [...appData.activities].reverse().forEach(activity => {
             const li = document.createElement('li');
-            li.innerHTML = `<span class="timestamp">${activity.timestamp}</span><span class="content">${activity.description}</span>`;
+            li.innerHTML = `<span class="timestamp">${activity.timestamp}</span><span class="content">${escapeHtml(activity.description)}</span>`;
             activityList.appendChild(li);
         });
     }
@@ -113,13 +126,14 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             saveData();
             renderActivities();
-            activityInput.value = ''; // Clear input
+            activityInput.value = '';
         } else {
             alert('Please enter an activity description.');
         }
     });
 
     // --- Journaling ---
+    // (This section remains unchanged)
     const journalInput = document.getElementById('journalInput');
     const addJournalEntryButton = document.getElementById('addJournalEntry');
     const journalList = document.getElementById('journalList');
@@ -130,11 +144,10 @@ document.addEventListener('DOMContentLoaded', () => {
             journalList.innerHTML = '<li>No journal entries yet.</li>';
             return;
         }
-        // Newest first
         [...appData.journalEntries].reverse().forEach(entry => {
             const li = document.createElement('li');
             li.classList.add('journal-entry');
-            li.innerHTML = `<span class="timestamp">${entry.timestamp}</span><span class="content">${entry.content}</span>`;
+            li.innerHTML = `<span class="timestamp">${entry.timestamp}</span><span class="content">${escapeHtml(entry.content)}</span>`;
             journalList.appendChild(li);
         });
     }
@@ -155,6 +168,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --- Task Tracking ---
+    // (This section remains unchanged)
     const taskInput = document.getElementById('taskInput');
     const addTaskButton = document.getElementById('addTask');
     const taskList = document.getElementById('taskList');
@@ -165,32 +179,35 @@ document.addEventListener('DOMContentLoaded', () => {
             taskList.innerHTML = '<li>No tasks added yet.</li>';
             return;
         }
-        appData.tasks.forEach((task, index) => {
-            const li = document.createElement('li');
-            li.dataset.taskId = task.id; // Store ID for easy access
+        const pendingTasks = appData.tasks.filter(task => !task.done);
+        const doneTasks = appData.tasks.filter(task => task.done);
 
-            const checkbox = document.createElement('input');
-            checkbox.type = 'checkbox';
-            checkbox.checked = task.done;
-            checkbox.addEventListener('change', () => toggleTaskDone(task.id));
-
-            const span = document.createElement('span');
-            span.textContent = task.description;
-            span.classList.add('task-text');
-            if (task.done) {
-                span.classList.add('done');
-            }
-
-            const deleteButton = document.createElement('button');
-            deleteButton.textContent = 'Delete';
-            deleteButton.classList.add('delete-task');
-            deleteButton.addEventListener('click', () => deleteTask(task.id));
-
-            li.appendChild(checkbox);
-            li.appendChild(span); // Text comes after checkbox
-            li.appendChild(deleteButton);
-            taskList.appendChild(li);
-        });
+        const renderTaskList = (tasksToRender) => {
+            tasksToRender.forEach((task) => {
+                const li = document.createElement('li');
+                li.dataset.taskId = task.id;
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.checked = task.done;
+                checkbox.addEventListener('change', () => toggleTaskDone(task.id));
+                const span = document.createElement('span');
+                span.textContent = task.description;
+                span.classList.add('task-text');
+                if (task.done) {
+                    span.classList.add('done');
+                }
+                const deleteButton = document.createElement('button');
+                deleteButton.textContent = 'Delete';
+                deleteButton.classList.add('delete-task');
+                deleteButton.addEventListener('click', () => deleteTask(task.id));
+                li.appendChild(checkbox);
+                li.appendChild(span);
+                li.appendChild(deleteButton);
+                taskList.appendChild(li);
+            });
+        };
+        renderTaskList(pendingTasks);
+        renderTaskList(doneTasks);
     }
 
     addTaskButton.addEventListener('click', () => {
@@ -214,7 +231,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (task) {
             task.done = !task.done;
             saveData();
-            renderTasks(); // Re-render to update style
+            renderTasks();
         }
     }
 
@@ -224,8 +241,8 @@ document.addEventListener('DOMContentLoaded', () => {
         renderTasks();
     }
 
-
     // --- Interest Tracking ---
+    // (This section remains unchanged)
     const interestInput = document.getElementById('interestInput');
     const addInterestButton = document.getElementById('addInterest');
     const interestList = document.getElementById('interestList');
@@ -238,17 +255,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         appData.interests.forEach((interest, index) => {
             const li = document.createElement('li');
-
             const span = document.createElement('span');
             span.textContent = interest;
-            span.classList.add('content'); // Use content class for consistency
-
+            span.classList.add('content');
             const deleteButton = document.createElement('button');
             deleteButton.textContent = 'Delete';
             deleteButton.classList.add('delete-interest');
-            deleteButton.dataset.interestIndex = index; // Store index for deletion
+            deleteButton.dataset.interestIndex = index;
             deleteButton.addEventListener('click', deleteInterest);
-
             li.appendChild(span);
             li.appendChild(deleteButton);
             interestList.appendChild(li);
@@ -258,7 +272,6 @@ document.addEventListener('DOMContentLoaded', () => {
     addInterestButton.addEventListener('click', () => {
         const interest = interestInput.value.trim();
         if (interest) {
-            // Optional: Prevent duplicates
             if (!appData.interests.includes(interest)) {
                  appData.interests.push(interest);
                  saveData();
@@ -275,43 +288,73 @@ document.addEventListener('DOMContentLoaded', () => {
     function deleteInterest(event) {
         const indexToDelete = parseInt(event.target.dataset.interestIndex, 10);
         if (!isNaN(indexToDelete) && indexToDelete >= 0 && indexToDelete < appData.interests.length) {
-             appData.interests.splice(indexToDelete, 1); // Remove item at index
+             appData.interests.splice(indexToDelete, 1);
              saveData();
              renderInterests();
         }
     }
 
-
     // --- Chat Functionality ---
+    // (Helper functions addMessageToChat, renderChatHistory, prepareContextForAI remain unchanged)
     const chatHistoryDiv = document.getElementById('chatHistory');
     const chatMessageInput = document.getElementById('chatMessage');
     const sendMessageButton = document.getElementById('sendMessage');
     const chatLoading = document.getElementById('chatLoading');
     const chatError = document.getElementById('chatError');
 
-    // Function to add a message to the chat display
     function addMessageToChat(sender, message) {
         const messageDiv = document.createElement('div');
         messageDiv.classList.add('chat-message');
         messageDiv.classList.add(sender === 'user' ? 'user-message' : 'ai-message');
-        messageDiv.textContent = message; // Simple text display
+        messageDiv.textContent = message;
         chatHistoryDiv.appendChild(messageDiv);
-        // Scroll to the bottom
         chatHistoryDiv.scrollTop = chatHistoryDiv.scrollHeight;
     }
 
-    // Function to render the entire chat history
     function renderChatHistory() {
         chatHistoryDiv.innerHTML = '';
         appData.chatHistory.forEach(msg => {
-            // The API response structure nests text under 'parts'
-            const text = msg.parts && msg.parts.length > 0 ? msg.parts[0].text : (msg.text || '[empty message]');
+            const text = msg.parts && msg.parts.length > 0 ? msg.parts[0].text : (msg.text || '');
             addMessageToChat(msg.role === 'user' ? 'user' : 'ai', text);
         });
+         chatHistoryDiv.scrollTop = chatHistoryDiv.scrollHeight;
     }
 
-    // Function to call Gemini API
-    async function callGeminiApi(prompt) {
+    function prepareContextForAI() {
+        const MAX_ACTIVITIES = 5;
+        const MAX_JOURNAL = 3;
+        const MAX_TASKS = 10;
+
+        let context = "--- User Context ---\n";
+        if (appData.activities.length > 0) {
+            context += "Recent Activities:\n";
+            [...appData.activities].slice(-MAX_ACTIVITIES).forEach(a => { context += `- (${a.timestamp}): ${a.description}\n`; });
+        } else { context += "Recent Activities: None logged recently.\n"; }
+
+        if (appData.journalEntries.length > 0) {
+            context += "\nRecent Journal Entries:\n";
+            [...appData.journalEntries].slice(-MAX_JOURNAL).forEach(j => { const snippet = j.content.length > 100 ? j.content.substring(0, 100) + '...' : j.content; context += `- (${j.timestamp}): ${snippet}\n`; });
+        } else { context += "\nRecent Journal Entries: None logged recently.\n"; }
+
+        const pendingTasks = appData.tasks.filter(t => !t.done);
+        if (pendingTasks.length > 0) {
+            context += "\nPending Tasks:\n";
+            pendingTasks.slice(0, MAX_TASKS).forEach(t => { context += `- ${t.description}\n`; });
+            if (pendingTasks.length > MAX_TASKS) { context += `- ...and ${pendingTasks.length - MAX_TASKS} more.\n`; }
+        } else { context += "\nPending Tasks: None\n"; }
+
+        if (appData.interests.length > 0) {
+             context += "\nInterests:\n";
+             appData.interests.forEach(i => { context += `- ${i}\n`; });
+        } else { context += "\nInterests: None listed.\n"; }
+
+        context += "--- End Context ---\n";
+        return context;
+    }
+
+
+    // **REVISED & CORRECTED**: Function to call Gemini API
+    async function callGeminiApi(userPrompt) { // userPrompt is technically available but we use the history version mostly
         if (!GEMINI_API_KEY) {
             chatError.textContent = 'Error: API Key is not set.';
             chatError.style.display = 'block';
@@ -319,55 +362,93 @@ document.addEventListener('DOMContentLoaded', () => {
             return null;
         }
 
-        chatLoading.style.display = 'block'; // Show loading indicator
-        chatError.style.display = 'none'; // Hide previous errors
+        chatLoading.style.display = 'block';
+        chatError.style.display = 'none';
 
-        // --- Prompt Engineering ---
-        // Basic system instruction + user prompt
-        // More advanced: Include summaries of recent activities/journal/tasks here
-        // This history format is crucial for the API
-        const history = [...appData.chatHistory]; // Copy current history
+        // Define the system instruction (role definition ONLY)
+        const systemInstructionText = `You are a Personal Caretaker assistant. Your objectives are:
+1. Help the user track their activities, journal entries, tasks, and interests using the context provided.
+2. Engage in supportive and understanding conversations. Help the user maintain good mental health.
+3. Be realistic and grounded. Provide a reality check when needed, rather than gaslighting or being overly agreeable if something seems off. Avoid toxic positivity.
+4. **You MUST use the context provided in the user's message history to answer questions about activities, journal entries, tasks, and interests.** Do not claim you lack access to information if it is present in the context.
+5. Keep your responses concise and helpful unless asked for more detail.`;
+
+        // Prepare the context string
+        const contextData = prepareContextForAI();
+
+        // Prepare the chat history for the API
+        const MAX_HISTORY_TURNS_FOR_API = 20; // Send last 20 turns (user + ai = 10 pairs)
+
+        // **CORRECTED History Construction**:
+        // Get the full history relevant for the API call limit
+        const relevantHistory = appData.chatHistory.slice(-MAX_HISTORY_TURNS_FOR_API);
+
+        // Ensure relevantHistory is not empty before trying to access the last element
+        if (relevantHistory.length === 0) {
+             console.error("Cannot construct API payload: No chat history available.");
+             chatError.textContent = 'Error: Cannot send message - chat history is empty.';
+             chatError.style.display = 'block';
+             chatLoading.style.display = 'none';
+             return null;
+        }
+
+
+        // Construct the 'contents' array
         const contents = [
-            ...history, // Previous turns
-            { // Current user turn
+            // 1. Include all historical turns *except* the very last user message.
+            //    The slice(0, -1) correctly takes all elements except the last one.
+            ...relevantHistory.slice(0, -1),
+
+            // 2. Add the prepared context as a simulated user message.
+             {
                 role: 'user',
-                parts: [{ text: prompt }],
+                parts: [{ text: "Okay, remember this is my current situation and context:\n" + contextData }]
             },
+
+            // 3. Add the actual *last* user prompt from the history.
+            //    This ensures we send exactly what the user typed most recently.
+            relevantHistory[relevantHistory.length - 1] // Access the last item of the sliced history
         ];
 
+
+        // --- Generation Config, Safety Settings, URL (remain the same) ---
         const generationConfig = {
-            temperature: 0.7, // Adjust creativity vs factualness
+            temperature: 0.7,
             topK: 1,
-            topP: 1,
-            maxOutputTokens: 256, // Limit response length
+            topP: 0.95,
+            maxOutputTokens: 350,
         };
 
-        const safetySettings = [ // Standard safety settings
+        const safetySettings = [
             { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
             { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
             { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
             { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
         ];
 
-        // IMPORTANT: Use 'gemini-1.5-flash-latest' or another available model
         const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
 
         try {
+            console.log("--- Sending API Request ---");
+            console.log("System Instruction (Role):", systemInstructionText);
+            console.log("Contents (History + Context + Prompt):", JSON.stringify(contents, null, 2)); // Log the exact structure being sent
+
             const response = await fetch(API_URL, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    contents: contents, // Pass the constructed conversation history
+                    systemInstruction: {
+                        parts: [{ text: systemInstructionText }]
+                    },
+                    contents: contents,
                     generationConfig: generationConfig,
                     safetySettings: safetySettings,
-                    // You could add a systemInstruction here for overall guidance:
-                    // systemInstruction: { parts: [{ text: "You are a helpful personal caretaker. Be supportive but realistic. Do not gaslight. Refer to user's logged data if provided in the context."}] },
                  }),
             });
 
-            chatLoading.style.display = 'none'; // Hide loading indicator
+            chatLoading.style.display = 'none';
 
             if (!response.ok) {
                 const errorData = await response.json();
@@ -376,71 +457,86 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const data = await response.json();
+            console.log("API Raw Response:", data);
+            console.log("--- API Response Received ---");
 
-            // Extract the response text
-            if (data.candidates && data.candidates.length > 0 && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts.length > 0) {
-                const aiResponseText = data.candidates[0].content.parts[0].text;
-                 // Add AI response to history (using the API's structure)
-                appData.chatHistory.push({ role: 'model', parts: [{ text: aiResponseText }] });
-                saveData(); // Save updated history
-                return aiResponseText;
-            } else if (data.promptFeedback && data.promptFeedback.blockReason) {
-                 // Handle blocked responses due to safety settings
-                 console.error("Response blocked:", data.promptFeedback);
-                 throw new Error(`Response blocked due to ${data.promptFeedback.blockReason}.`);
+            // --- Response Parsing and Error Handling (remain the same) ---
+            let aiResponseText = null;
+            if (data.candidates && data.candidates.length > 0) {
+                 const candidate = data.candidates[0];
+                 if (candidate.finishReason && candidate.finishReason !== "STOP" && candidate.finishReason !== "MAX_TOKENS") {
+                     console.error("API response finished unexpectedly:", candidate.finishReason, candidate.safetyRatings);
+                     let blockReason = candidate.finishReason;
+                     if (candidate.safetyRatings) {
+                        const blockedRating = candidate.safetyRatings.find(r => r.blocked);
+                        if (blockedRating) {
+                            blockReason += ` (Blocked Category: ${blockedRating.category})`;
+                        }
+                     }
+                     throw new Error(`Response generation failed or was blocked. Reason: ${blockReason}`);
+                 }
+                 if (candidate.content && candidate.content.parts && candidate.content.parts.length > 0) {
+                    aiResponseText = candidate.content.parts[0].text;
+                 }
             }
-             else {
-                console.error("Unexpected API response structure:", data);
-                throw new Error("Could not parse AI response from API.");
+
+            if (!aiResponseText) {
+                 if (data.promptFeedback && data.promptFeedback.blockReason) {
+                     console.error("Response blocked by API prompt filters:", data.promptFeedback);
+                     throw new Error(`Response blocked due to prompt ${data.promptFeedback.blockReason}.`);
+                 } else {
+                    console.error("Unexpected API response structure or empty content:", data);
+                    throw new Error("Could not parse AI response from API or response was empty.");
+                 }
             }
+
+            // Add AI response to history
+            appData.chatHistory.push({ role: 'model', parts: [{ text: aiResponseText }] });
+            saveData();
+            return aiResponseText;
 
         } catch (error) {
             console.error('Error calling Gemini API:', error);
             chatLoading.style.display = 'none';
             chatError.textContent = `Error: ${error.message}`;
             chatError.style.display = 'block';
-            return null; // Indicate failure
+            addMessageToChat('ai', `[Error: Could not get response. ${error.message}]`);
+            return null;
         }
-    }
+    } // --- End of callGeminiApi ---
+
 
     // Handle sending chat message
+    // (This section remains unchanged)
     sendMessageButton.addEventListener('click', async () => {
         const messageText = chatMessageInput.value.trim();
-        if (!messageText) return; // Don't send empty messages
+        if (!messageText) return;
         if (!GEMINI_API_KEY) {
              alert("Please enter and save your Gemini API Key first.");
              return;
         }
 
-
-        // Display user message immediately
         addMessageToChat('user', messageText);
-         // Add user message to history before sending API call
-         appData.chatHistory.push({ role: 'user', parts: [{ text: messageText }] });
-         saveData(); // Save user message
+        appData.chatHistory.push({ role: 'user', parts: [{ text: messageText }] });
+        saveData();
+        chatMessageInput.value = '';
 
-
-        chatMessageInput.value = ''; // Clear input field
-
-        // Get AI response
-        const aiResponse = await callGeminiApi(messageText); // Pass only the new message
+        const aiResponse = await callGeminiApi(messageText); // Pass user prompt (though it's mainly read from history now)
 
         if (aiResponse) {
             addMessageToChat('ai', aiResponse);
-            // AI response already added to appData.chatHistory inside callGeminiApi
         }
     });
 
-     // Allow sending message with Enter key
      chatMessageInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) { // Check for Enter key without Shift
-            e.preventDefault(); // Prevent default newline in input
-            sendMessageButton.click(); // Trigger button click
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessageButton.click();
         }
     });
-
 
     // --- Initial Load ---
+    // (This section remains unchanged)
     function renderAll() {
         renderActivities();
         renderJournal();

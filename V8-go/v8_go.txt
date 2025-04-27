@@ -1,0 +1,29 @@
+### Objective: 
+I want to port the whole v8 javascript engine from C++ language to go lang. 
+I know it is a very complex task. But it can be done by breaking the tasks into small atomic tasks. 
+
+### Tips for creating the workflow:
+
+Plan the task in multiple iterations. 
+In the first few iterations, try to get a high level understanding of the whole codebase structure.
+In the next level of iterations, try to understand the different layers, modules and logics in different parts of the codebase. 
+
+In the final iterations, try to get complete understanding of the codebase. You should have the understanding completely of each module, 
+dependencies, API layers, classes and functions. 
+
+Try to create a consolidated design document, so that it can be used for the porting task.
+
+During the whole porting task, after the exploration phase, have a proper context management. 
+
+The context management should be like how a human manages context. 
+The human programmer doesn't try to keep each and every line of the codebase in his mind. 
+the programmer will abstract away most of the code. he/she will know the understand the high level purpose and design of the codebase. 
+He will have the mental model of the codebase in his mind. But he will have indepth understanding and will only those code part exactly.
+
+So it is necessary to avoid filling the llm context with irrelevant context. it is always necessary to have a proper context management 
+system.
+
+First create a plan for the above.
+
+
+
