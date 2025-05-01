@@ -212,3 +212,11 @@ Iteratively tune the Go engine for speed and efficiency.
 - **Continuous measurement:**  After each major change, run benchmarks to quantify impact.  Optimize only when profiling indicates a clear bottleneck.  Keep track of metrics (execution time, memory use) in a performance report.
 
 **Sources:** We derived the above strategy from V8’s documented design ([The V8 Engine Series I: Architecture | by Mahmoud Yasser | Medium](https://braineanear.medium.com/the-v8-engine-series-i-architecture-ba08a38c54fa#:~:text=2)) ([The V8 Engine Series I: Architecture | by Mahmoud Yasser | Medium](https://braineanear.medium.com/the-v8-engine-series-i-architecture-ba08a38c54fa#:~:text=TurboFan%20is%20an%20optimizing%20compiler,level%20to%20provide%20higher%20performance)), V8’s GC description ([Trash talk: the Orinoco garbage collector · V8](https://v8.dev/blog/trash-talk#:~:text=Over%20the%20past%20years%20the,concurrent%20collector%20with%20incremental%20fallback)) ([Trash talk: the Orinoco garbage collector · V8](https://v8.dev/blog/trash-talk#:~:text=Minor%20GC%20%28Scavenger%29%20)), TurboFan documentation ([TurboFan · V8](https://v8.dev/docs/turbofan#:~:text=TurboFan%20is%20one%20of%20V8%E2%80%99s,found%20in%20the%20following%20resources)), and best practices for engine porting and testing ([GitHub - tc39/test262: Official ECMAScript Conformance Test Suite](https://github.com/tc39/test262#:~:text=Test262%3A%20ECMAScript%20Test%20Suite%20,TR%2F104)). These references ensure our plan aligns with V8’s actual architecture and known software-engineering techniques.
+
+
+
+
+
+
+### Query 3:
+The above is very primitive. It is very bad. I will give my views. the llm cannot understand all the files in one go. but we cannot give one request for each llm. So the approach could be to make different files into one single file. But we can have a limit for that based on the no of tokens a llm context can manage and also the output it can generate. Assume that it can generate around 16k token and input upto 500k tokens. 
