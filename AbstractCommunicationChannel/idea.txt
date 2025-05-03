@@ -1,0 +1,4 @@
+I had an idea about the development of mathematics and numbers in general
+there are two models, A and B two can visualize some objects. 
+Those objects are separate entities, like balls or some shapes in a plain background. now i want the models to analyse the images and 
+communicate between them the no of objects in the images . Both the models should understand the common data notation which will be trained .
