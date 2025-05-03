@@ -166,8 +166,14 @@ li.journal-entry .content {
     background-color: #f8f9fa;
 }
 
+/* *** NEW STYLES *** */
+.chat-input-area {
+    /* Container for input and controls */
+}
+
 .chat-input {
     display: flex;
+    margin-bottom: 10px; /* Space between input and controls */
 }
 
 .chat-input input {
@@ -176,26 +182,48 @@ li.journal-entry .content {
     margin-bottom: 0; /* Remove default bottom margin */
 }
 
+.chat-controls {
+    display: flex;
+    gap: 10px; /* Space between control buttons */
+    margin-bottom: 10px; /* Space below controls */
+}
+
+button.secondary-button {
+    background-color: #6c757d; /* Grey background */
+    font-size: 0.9em; /* Slightly smaller */
+    padding: 8px 12px;
+}
+
+button.secondary-button:hover {
+    background-color: #5a6268;
+}
+/* *** END NEW STYLES *** */
+
+
 .chat-message {
     margin-bottom: 10px;
     padding: 8px 12px;
     border-radius: 15px;
     max-width: 80%;
     word-wrap: break-word;
+    display: block; /* Ensure messages take full width available in container */
+    clear: both; /* Prevent weird floating issues */
 }
 
 .user-message {
     background-color: #d1e7fd;
     color: #0a58ca;
-    align-self: flex-end;
-    margin-left: auto; /* Push to the right */
+    /* align-self: flex-end; No longer needed with block/float */
+    /* margin-left: auto; */
+    float: right; /* Push to the right */
     text-align: right;
 }
 
 .ai-message {
     background-color: #e2e3e5;
     color: #495057;
-    align-self: flex-start;
+    /* align-self: flex-start; */
+     float: left; /* Push to the left */
      text-align: left;
 }
 

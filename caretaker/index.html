@@ -27,9 +27,15 @@
     <div class="tab-content active" id="chat">
         <h2>Chat & Mental Health</h2>
         <div id="chatHistory"></div>
-        <div class="chat-input">
-            <input type="text" id="chatMessage" placeholder="Type your message...">
-            <button id="sendMessage">Send</button>
+        <div class="chat-input-area"> 
+            <div class="chat-input">
+                <input type="text" id="chatMessage" placeholder="Type your message...">
+                <button id="sendMessage">Send</button>
+            </div>
+            <div class="chat-controls"> 
+                <button id="clearChatButton" class="secondary-button">Clear Chat</button>
+                <button id="downloadChatButton" class="secondary-button">Download Chat</button>
+            </div>
         </div>
          <p id="chatLoading" style="display: none;">Thinking...</p>
          <p id="chatError" class="error-message" style="display: none;"></p>

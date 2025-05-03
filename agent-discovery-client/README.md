@@ -1,0 +1,80 @@
+# Agent Discovery Client
+
+A Python client library for interacting with the Agent Discovery Service.
+
+## Installation
+
+```bash
+pip install agent-discovery-client
+```
+
+## Usage
+
+```python
+from agent_discovery_client import AgentDiscoveryClient, Skill, Capabilities
+
+# Initialize the client
+client = AgentDiscoveryClient("http://localhost:8080")
+
+# Create skills
+skills = [
+    Skill(
+        id="summarize-doc-v1",
+        name="Document Summarization",
+        description="Summarizes documents",
+        tags=["summarization", "document"]
+    )
+]
+
+# Create capabilities
+capabilities = Capabilities(
+    streaming=True,
+    summarization=True
+)
+
+# Register an agent
+agent = client.register_agent(
+    name="Summarizer Agent",
+    description="An agent that summarizes documents",
+    skills=skills,
+    capabilities=capabilities
+)
+
+# Discover agents with specific capabilities
+agents = client.discover_agents(
+    capability="streaming",
+    capability_value=True,
+    skill_tag="summarization"
+)
+```
+
+## Features
+
+- Register new agents with the discovery service
+- Discover agents based on various filters:
+  - Capabilities (e.g., streaming, summarization)
+  - Skill tags
+  - Skill IDs
+- Type hints for better IDE support
+- Error handling for API responses
+
+## Development
+
+To set up the development environment:
+
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/agent-discovery-client.git
+cd agent-discovery-client
+
+# Create a virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install -e .
+```
+
+## License
+
+MIT 
