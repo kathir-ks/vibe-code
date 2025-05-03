@@ -29,3 +29,4 @@ First create a plan for the above.
 
 The above is very primitive. It is very bad. I will give my views. the llm cannot understand all the files in one go. but we cannot give one request for each llm. So the approach could be to make different files into one single file. But we can have a limit for that based on the no of tokens a llm context can manage and also the output it can generate. Assume that it can generate around 16k token and input upto 500k tokens. 
 
+

@@ -1,0 +1,42 @@
+
+"""
+Aiming to build a graph of the codebase so that it can be used in the process of conversion of the codebase. 
+
+Each node containing a code block (class, methods, templates):
+    -> In this way, We can chunk each file and each folder of the codebase into a graph data structure that can be used to build the relevant 
+        context during the conversion process.
+    -> Each node contains the code block, its purpose, and its dependencies. 
+    -> And different types of nodes, can be used, whole codebase node (as starting point), folder node, file node and final code block node . 
+    -> Codebase nodes containing edges to folder nodes, folder nodes containing edges to file nodes, file nodes containing edges to 
+       code block nodes and finally code block nodes connected to related or required code block nodes (can also be other file nodes and 
+       folder nodes for importing dependencies between layers).
+    
+    -> Have the following structure for each node. 
+    -> Codebase Node:
+           - Description: A brief description about the node.
+           - Metadata:
+               - Languages:
+           - Edges:
+                [FolderNodes]
+    
+    -> Folder Node:
+        - Description: A description about the files present in the folder and the purpose of the module
+        - Edges:
+                [FileNodes]
+    -> File Node:
+        - Description: A description about the logic of file and its dependencies. 
+        - Edges:
+                [CodeBlock Nodes]
+    -> Code Block Node:
+        - Description: A description about the code block, its nature (class, methods, template, interface, etc.,)
+        - Edges:
+                [Code block Nodes]
+        - Code:
+            [Actual Code block]
+            
+    First build standard data classes for the above. 
+    
+    1. in the first few iterations try to build the individual nodes, with whatever edges or connections possible. 
+    2. in the next few iterations, try to build the complete graph. 
+    3. in the final few interations, try to convert the codebase to rust, by having a complete context management using graph.
+"""

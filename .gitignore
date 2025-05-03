@@ -1,2 +1,4 @@
 *.infinite-blog
 __pycache__
+.env
+.gemini_keys
