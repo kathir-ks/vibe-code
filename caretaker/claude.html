@@ -12,6 +12,7 @@
             --card-color: #ffffff;
             --text-color: #333333;
             --border-color: #e0e0e0;
+            --tab-inactive: #e6e6e6;
         }
 
         body {
@@ -42,7 +43,7 @@
 
         .tabs {
             display: flex;
-            background-color: var(--card-color);
+            background-color: var(--tab-inactive);
             border-radius: 8px;
             overflow: hidden;
             margin-bottom: 20px;
@@ -52,7 +53,7 @@
         .tab-button {
             flex: 1;
             padding: 15px;
-            background: none;
+            background: var(--tab-inactive);
             border: none;
             cursor: pointer;
             font-size: 16px;
@@ -65,6 +66,10 @@
             background-color: var(--card-color);
             color: var(--primary-color);
             border-bottom: 3px solid var(--primary-color);
+        }
+
+        .tab-button:hover:not(.active) {
+            background-color: #d6d6d6;
         }
 
         .tab-content {
@@ -101,6 +106,7 @@
         input[type="text"],
         input[type="date"],
         input[type="time"],
+        input[type="password"],
         textarea,
         select {
             width: 100%;
@@ -265,6 +271,35 @@
             color: #777;
             font-size: 14px;
         }
+
+        .api-status {
+            padding: 8px 12px;
+            border-radius: 4px;
+            margin-top: 10px;
+            font-weight: 600;
+        }
+
+        .api-status.connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+
+        .api-status.disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+
+        .toggle-password {
+            position: absolute;
+            right: 10px;
+            top: 10px;
+            cursor: pointer;
+            color: #777;
+        }
+
+        .password-wrapper {
+            position: relative;
+        }
     </style>
 </head>
 <body>
@@ -281,6 +316,7 @@
             <button class="tab-button" data-tab="tasks">Tasks</button>
             <button class="tab-button" data-tab="chat">Chat</button>
             <button class="tab-button" data-tab="interests">Interests</button>
+            <button class="tab-button" data-tab="settings">Settings</button>
         </div>
 
         <!-- Dashboard Tab -->
@@ -454,6 +490,9 @@
         <div id="chat" class="tab-content">
             <div class="card">
                 <h3>Chat with Your Caretaker</h3>
+                <div id="api-status" class="api-status disconnected">
+                    AI Model Status: Not Connected
+                </div>
                 <div class="chat-container">
                     <div id="chat-messages" class="chat-messages">
                         <!-- Messages will be added here -->
@@ -505,6 +544,54 @@
                 </div>
             </div>
         </div>
+
+        <!-- Settings Tab -->
+        <div id="settings" class="tab-content">
+            <div class="card">
+                <h3>API Configuration</h3>
+                <form id="api-form">
+                    <div class="form-group">
+                        <label for="api-key">Gemini API Key</label>
+                        <div class="password-wrapper">
+                            <input type="password" id="api-key" placeholder="Enter your Gemini API key">
+                            <span class="toggle-password" onclick="togglePasswordVisibility()">👁️</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="model-selection">Model</label>
+                        <select id="model-selection">
+                            <option value="gemini-2.0-flash" selected>gemini-2.0-flash</option>
+                            <option value="gemini-pro">gemini-pro</option>
+                            <option value="gemini-1.5-pro">gemini-1.5-pro</option>
+                        </select>
+                    </div>
+                    <button type="submit" id="connect-api">Connect API</button>
+                </form>
+                <div id="api-test-result" style="margin-top: 15px;"></div>
+            </div>
+            
+            <div class="card">
+                <h3>Data Management</h3>
+                <p>Manage your application data. Be careful - these actions cannot be undone.</p>
+                <button id="export-data" style="background-color: #3498db; margin-right: 10px;">Export All Data</button>
+                <button id="import-data" style="background-color: #2ecc71; margin-right: 10px;">Import Data</button>
+                <button id="clear-data" style="background-color: #e74c3c;">Clear All Data</button>
+                <input type="file" id="import-file" style="display: none;" accept=".json">
+            </div>
+            
+            <div class="card">
+                <h3>Theme Settings</h3>
+                <div class="form-group">
+                    <label for="theme-selection">Theme</label>
+                    <select id="theme-selection">
+                        <option value="light" selected>Light</option>
+                        <option value="dark">Dark</option>
+                        <option value="blue">Blue</option>
+                    </select>
+                </div>
+                <button id="apply-theme">Apply Theme</button>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -549,6 +636,17 @@
                 if (!storage.load('journal')) storage.save('journal', []);
                 if (!storage.load('interests')) storage.save('interests', []);
                 if (!storage.load('chatHistory')) storage.save('chatHistory', []);
+                if (!storage.load('settings')) storage.save('settings', {
+                    apiKey: '',
+                    model: 'gemini-2.0-flash',
+                    theme: 'light'
+                });
+            },
+            clear: () => {
+                const settingsBackup = storage.load('settings');
+                localStorage.clear();
+                storage.save('settings', settingsBackup);
+                storage.initialize();
             }
         };
 
@@ -772,291 +870,4 @@
                 taskList.appendChild(li);
             });
             
-            // Render upcoming tasks (incomplete tasks only, up to 5)
-            upcomingTasks.innerHTML = '';
-            const incompleteTasks = tasks.filter(task => !task.completed);
-            incompleteTasks.slice(0, 5).forEach(task => {
-                const li = document.createElement('li');
-                li.className = 'task-item';
-                li.innerHTML = `
-                    <div>
-                        <strong>${task.title}</strong>
-                        <div>${task.dueDate ? `Due: ${task.dueDate}` : 'No due date'} | ${task.priority}</div>
-                    </div>
-                    <button class="complete-btn" data-id="${task.id}">Complete</button>
-                `;
-                upcomingTasks.appendChild(li);
-            });
-            
-            // Add event listeners to buttons
-            document.querySelectorAll('.task-item .delete-btn').forEach(button => {
-                button.addEventListener('click', (e) => {
-                    const id = parseInt(e.target.getAttribute('data-id'));
-                    const tasks = storage.load('tasks') || [];
-                    const updatedTasks = tasks.filter(task => task.id !== id);
-                    storage.save('tasks', updatedTasks);
-                    renderTasks();
-                    updateDashboard();
-                });
-            });
-            
-            document.querySelectorAll('.task-item .complete-btn').forEach(button => {
-                button.addEventListener('click', (e) => {
-                    const id = parseInt(e.target.getAttribute('data-id'));
-                    const tasks = storage.load('tasks') || [];
-                    const updatedTasks = tasks.map(task => {
-                        if (task.id === id) {
-                            return { ...task, completed: true };
-                        }
-                        return task;
-                    });
-                    storage.save('tasks', updatedTasks);
-                    renderTasks();
-                    updateDashboard();
-                });
-            });
-        }
-
-        // Interests functionality
-        const interestForm = document.getElementById('interest-form');
-        const interestsContainer = document.getElementById('interests-container');
-
-        interestForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            
-            const interest = {
-                id: Date.now(),
-                name: document.getElementById('interest-name').value,
-                category: document.getElementById('interest-category').value,
-                notes: document.getElementById('interest-notes').value
-            };
-            
-            const interests = storage.load('interests') || [];
-            interests.push(interest);
-            storage.save('interests', interests);
-            
-            renderInterests();
-            interestForm.reset();
-        });
-
-        function renderInterests() {
-            const interests = storage.load('interests') || [];
-            
-            interestsContainer.innerHTML = '';
-            if (interests.length === 0) {
-                interestsContainer.innerHTML = '<p>No interests added yet.</p>';
-            } else {
-                interests.forEach(interest => {
-                    const div = document.createElement('div');
-                    div.className = 'interest-tag';
-                    div.innerHTML = `
-                        ${interest.name} (${interest.category})
-                        <button data-id="${interest.id}" title="${interest.notes}">×</button>
-                    `;
-                    interestsContainer.appendChild(div);
-                });
-            }
-            
-            // Add event listeners to delete buttons
-            document.querySelectorAll('.interest-tag button').forEach(button => {
-                button.addEventListener('click', (e) => {
-                    const id = parseInt(e.target.getAttribute('data-id'));
-                    const interests = storage.load('interests') || [];
-                    const updatedInterests = interests.filter(interest => interest.id !== id);
-                    storage.save('interests', updatedInterests);
-                    renderInterests();
-                });
-            });
-        }
-
-        // Chat functionality
-        const chatMessages = document.getElementById('chat-messages');
-        const chatInput = document.getElementById('chat-input');
-        const sendButton = document.getElementById('send-message');
-
-        function sendMessage() {
-            const message = chatInput.value.trim();
-            if (!message) return;
-            
-            // Add user message to chat
-            appendMessage(message, 'user');
-            
-            // Get AI response
-            getAIResponse(message);
-            
-            // Clear input
-            chatInput.value = '';
-        }
-
-        function appendMessage(message, sender) {
-            const div = document.createElement('div');
-            div.className = `message ${sender}-message`;
-            div.textContent = message;
-            chatMessages.appendChild(div);
-            
-            // Scroll to bottom
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-            
-            // Save message to history
-            const chatHistory = storage.load('chatHistory') || [];
-            chatHistory.push({
-                sender,
-                message,
-                timestamp: new Date().toISOString()
-            });
-            storage.save('chatHistory', chatHistory);
-        }
-
-        async function getAIResponse(userMessage) {
-            // Display typing indicator
-            const typingIndicator = document.createElement('div');
-            typingIndicator.className = 'message ai-message typing';
-            typingIndicator.textContent = 'Thinking...';
-            chatMessages.appendChild(typingIndicator);
-            
-            try {
-                // Here you would integrate with the Gemini API
-                // Since we can't actually call the API in this demo, we'll simulate a response
-                
-                // For a real implementation, you would use the genai library like this:
-                /*
-                const { GoogleGenerativeAI } = await import("https://cdn.jsdelivr.net/npm/@google/generative-ai@0.1.1/+esm");
-                const genAI = new GoogleGenerativeAI(API_KEY);
-                const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-                
-                // Get user context from your app data
-                const activities = storage.load('activities') || [];
-                const tasks = storage.load('tasks') || [];
-                const journal = storage.load('journal') || [];
-                const interests = storage.load('interests') || [];
-                
-                // Create a context-aware prompt
-                const contextPrompt = `
-                  You are a personal caretaker assistant. Your goal is to help the user track activities, 
-                  maintain mental health, and manage tasks. Be supportive but realistic.
-                  
-                  Recent activities: ${JSON.stringify(activities.slice(0, 3))}
-                  Pending tasks: ${JSON.stringify(tasks.filter(t => !t.completed).slice(0, 3))}
-                  Recent journal entries: ${JSON.stringify(journal.slice(0, 2))}
-                  User interests: ${JSON.stringify(interests)}
-                  
-                  User message: ${userMessage}
-                `;
-                
-                const result = await model.generateContent(contextPrompt);
-                const response = result.response.text();
-                */
-                
-                // For this demo, we'll simulate a response
-                await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API delay
-                
-                // Remove typing indicator
-                chatMessages.removeChild(typingIndicator);
-                
-                let response;
-                if (userMessage.toLowerCase().includes('how are you')) {
-                    response = "I'm doing well, thank you for asking! More importantly, how are you feeling today?";
-                } else if (userMessage.toLowerCase().includes('help me with')) {
-                    response = "I'd be happy to help you with that. Could you provide more details so I can assist you better?";
-                } else if (userMessage.toLowerCase().includes('feeling') || userMessage.toLowerCase().includes('mood')) {
-                    response = "Thank you for sharing how you're feeling. Remember it's okay to have ups and downs. Would you like to add this to your journal to track your mood over time?";
-                } else if (userMessage.toLowerCase().includes('task') || userMessage.toLowerCase().includes('todo')) {
-                    response = "I can help you manage your tasks. Would you like me to add a new task for you or check your existing ones?";
-                } else if (userMessage.toLowerCase().includes('activity') || userMessage.toLowerCase().includes('do')) {
-                    response = "Tracking your activities helps create a balanced lifestyle. Would you like to add a new activity or review your recent ones?";
-                } else {
-                    response = "I'm here to support you. I can help track your activities, manage your tasks, assist with journaling, or just chat. What would you like to focus on right now?";
-                }
-                
-                // Add AI response to chat
-                appendMessage(response, 'ai');
-                
-            } catch (error) {
-                // Remove typing indicator
-                chatMessages.removeChild(typingIndicator);
-                
-                // Add error message
-                appendMessage("I'm having trouble connecting right now. Please try again later.", 'ai');
-                console.error('Error getting AI response:', error);
-            }
-        }
-
-        sendButton.addEventListener('click', sendMessage);
-        chatInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                sendMessage();
-            }
-        });
-        
-        // Function to load chat history
-        function loadChatHistory() {
-            const chatHistory = storage.load('chatHistory') || [];
-            
-            // Only display the last 20 messages to prevent overcrowding
-            const recentMessages = chatHistory.slice(-20);
-            
-            chatMessages.innerHTML = ''; // Clear existing messages
-            recentMessages.forEach(msg => {
-                appendMessage(msg.message, msg.sender);
-            });
-            
-            // If no history, add welcome message
-            if (recentMessages.length === 0) {
-                appendMessage("Hello! I'm your personal caretaker assistant. How are you feeling today? What can I help you with?", 'ai');
-            }
-        }
-
-        // Dashboard updates
-        function updateDashboard() {
-            const activities = storage.load('activities') || [];
-            const tasks = storage.load('tasks') || [];
-            const journal = storage.load('journal') || [];
-            
-            // Count today's activities
-            const today = new Date().toISOString().split('T')[0];
-            const activitiesToday = activities.filter(a => a.date === today).length;
-            
-            // Count pending tasks
-            const pendingTasks = tasks.filter(t => !t.completed).length;
-            
-            // Calculate mood average
-            let moodSum = 0;
-            let moodCount = 0;
-            journal.forEach(entry => {
-                if (entry.mood) {
-                    moodSum += parseInt(entry.mood);
-                    moodCount++;
-                }
-            });
-            const moodAverage = moodCount > 0 ? (moodSum / moodCount).toFixed(1) : '-';
-            
-            // Update the dashboard
-            document.getElementById('activities-count').textContent = activitiesToday;
-            document.getElementById('tasks-count').textContent = pendingTasks;
-            document.getElementById('journal-count').textContent = journal.length;
-            document.getElementById('mood-average').textContent = moodAverage;
-        }
-
-        // Initialize the application
-        function initializeApp() {
-            // Set today's date for forms
-            const today = new Date().toISOString().split('T')[0];
-            document.getElementById('activity-date').value = today;
-            document.getElementById('journal-date').value = today;
-            
-            // Render all data
-            renderActivities();
-            renderJournal();
-            renderTasks();
-            renderInterests();
-            loadChatHistory();
-            
-            // Update dashboard stats
-            updateDashboard();
-        }
-
-        // Run initialization
-        initializeApp();
-    </script>
-</body>
-</html>
+            // Render upcoming tasks (incomplete tasks only,
