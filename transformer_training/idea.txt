@@ -1,0 +1,5 @@
+- train a transformer with a hidden dimension of around 100,000 with a few layers (1 or 2)
+- train a transformer with 
+
+related publications:
+- https://ar5iv.labs.arxiv.org/html/2203.00555?utm_source=chatgpt.com

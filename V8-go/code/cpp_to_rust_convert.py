@@ -24,7 +24,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler("v8_converter.log"),
+        logging.FileHandler(f"v8_converter_{time.time()}.log"),
         logging.StreamHandler()
     ]
 )
@@ -98,7 +98,7 @@ def convert_file(file_path: str, model) -> Dict[str, Any]:
 
             # Add random delay to prevent rate limiting
             delay = random.uniform(25, 40)  # Random delay between 25-40 seconds
-            logging.info(f"Sleeping for {delay:.2f} seconds after processing {file_path}")
+            logging.info(f"Sleeping for {delay:.2f} seconds before processing {file_path}")
             time.sleep(delay)
 
             # Make API call to Gemini

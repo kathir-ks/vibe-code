@@ -10,10 +10,11 @@ from typing import Tuple, List, Dict, Any, Optional
 from functools import partial
 import os
 from tqdm import tqdm
+import argparse
 
 # Set random seed for reproducibility
 np.random.seed(42)
-key = jax.random.PRNGKey(42)
+INIT_KEY = jax.random.PRNGKey(42)
 
 # Constants
 IMG_SIZE = 64
@@ -48,7 +49,7 @@ def generate_random_image(key, img_size=IMG_SIZE, max_objects=MAX_OBJECTS):
         draw.ellipse((x-radius, y-radius, x+radius, y+radius), fill=0)
         image = np.array(temp_img).astype(np.float32) / 255.0
     
-    return image, num_objects
+    return image, num_objects, key  # Return updated key
 
 # Generate dataset
 def generate_dataset(key, num_images, img_size=IMG_SIZE, max_objects=MAX_OBJECTS):
@@ -57,7 +58,7 @@ def generate_dataset(key, num_images, img_size=IMG_SIZE, max_objects=MAX_OBJECTS
     
     for i in range(num_images):
         key, subkey = jax.random.split(key)
-        img, count = generate_random_image(subkey, img_size, max_objects)
+        img, count, subkey = generate_random_image(subkey, img_size, max_objects)
         images.append(img)
         counts.append(count)
     
@@ -65,7 +66,7 @@ def generate_dataset(key, num_images, img_size=IMG_SIZE, max_objects=MAX_OBJECTS
     images = jnp.array(images).reshape(-1, img_size, img_size, 1)  # Add channel dimension
     counts = jnp.array(counts)
     
-    return images, counts
+    return images, counts, key  # Return updated key
 
 # Define the CNN model for image analysis
 class ImageEncoder(nn.Module):
@@ -230,11 +231,11 @@ def evaluate(state_a, state_b, images, labels):
     }
 
 # Main training function
-def train_models():
+def train_models(key=INIT_KEY):
     # Generate datasets
     key, subkey1, subkey2 = jax.random.split(key, 3)
-    train_images, train_counts = generate_dataset(subkey1, NUM_TRAIN_IMAGES)
-    test_images, test_counts = generate_dataset(subkey2, NUM_TEST_IMAGES)
+    train_images, train_counts, subkey1 = generate_dataset(subkey1, NUM_TRAIN_IMAGES)
+    test_images, test_counts, subkey2 = generate_dataset(subkey2, NUM_TEST_IMAGES)
     
     # Initialize models
     model_a = CountingAgent(embedding_dim=EMBEDDING_DIM, max_objects=MAX_OBJECTS)
@@ -286,10 +287,10 @@ def train_models():
         print(f"  Test Accuracy: Direct A: {eval_metrics['acc_a']:.4f}, Direct B: {eval_metrics['acc_b']:.4f}")
         print(f"                 B from A: {eval_metrics['acc_b_from_a']:.4f}, A from B: {eval_metrics['acc_a_from_b']:.4f}")
     
-    return state_a, state_b, model_a, model_b
+    return state_a, state_b, model_a, model_b, key
 
 # Analyze communication patterns
-def analyze_communication(state_a, state_b, model_a, model_b):
+def analyze_communication(state_a, state_b, model_a, model_b, key=INIT_KEY):
     # Generate images with 1 to MAX_OBJECTS objects
     images = []
     counts = []
@@ -385,7 +386,7 @@ def analyze_communication(state_a, state_b, model_a, model_b):
     return embeddings_a, embeddings_b
 
 # Visualization function
-def visualize_model_predictions(state_a, state_b, model_a, model_b):
+def visualize_model_predictions(state_a, state_b, model_a, model_b, key=INIT_KEY):
     # Generate test images with known object counts
     key, subkey = jax.random.split(key)
     test_images = []
@@ -460,15 +461,36 @@ def visualize_model_predictions(state_a, state_b, model_a, model_b):
     plt.ylabel("True Count")
     plt.savefig("confusion_matrix_b_from_a.png")
 
+# Parse command line arguments
+def parse_args():
+    parser = argparse.ArgumentParser(description='Train and evaluate counting communication models')
+    parser.add_argument('--batch-size', type=int, default=BATCH_SIZE, help='Batch size for training')
+    parser.add_argument('--epochs', type=int, default=NUM_EPOCHS, help='Number of epochs to train')
+    parser.add_argument('--max-objects', type=int, default=MAX_OBJECTS, help='Maximum number of objects in images')
+    parser.add_argument('--embedding-dim', type=int, default=EMBEDDING_DIM, help='Dimension of embedding space')
+    parser.add_argument('--learning-rate', type=float, default=LEARNING_RATE, help='Learning rate')
+    return parser.parse_args()
+
 # Run the training process
 if __name__ == "__main__":
+    args = parse_args()
+    
+    # Update global constants if provided in command line
+    global BATCH_SIZE, NUM_EPOCHS, MAX_OBJECTS, EMBEDDING_DIM, LEARNING_RATE
+    BATCH_SIZE = args.batch_size
+    NUM_EPOCHS = args.epochs
+    MAX_OBJECTS = args.max_objects
+    EMBEDDING_DIM = args.embedding_dim
+    LEARNING_RATE = args.learning_rate
+    
     print("Starting model training...")
-    state_a, state_b, model_a, model_b = train_models()
+    train_key = INIT_KEY
+    state_a, state_b, model_a, model_b, train_key = train_models(train_key)
     
     print("\nAnalyzing communication patterns...")
-    embeddings_a, embeddings_b = analyze_communication(state_a, state_b, model_a, model_b)
+    embeddings_a, embeddings_b = analyze_communication(state_a, state_b, model_a, model_b, train_key)
     
     print("\nVisualizing model predictions...")
-    visualize_model_predictions(state_a, state_b, model_a, model_b)
+    visualize_model_predictions(state_a, state_b, model_a, model_b, train_key)
     
     print("\nDone! Check the generated visualization files for results.")

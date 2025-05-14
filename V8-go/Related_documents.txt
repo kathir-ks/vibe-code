@@ -4,3 +4,5 @@ https://www.alphaxiv.org/overview/2503.12511
 ### VERT Paper: 
 https://arxiv.org/pdf/2404.18852
 
+### Converting a codebase to system design using chatgpt
+https://github.com/ahmedkhaleel2004/gitdiagram?utm_source=alphasignal

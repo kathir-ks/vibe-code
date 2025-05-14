@@ -7,6 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from flax.training import train_state
 import time
+from sklearn.decomposition import PCA # Import PCA for visualization
 
 # --- Configuration ---
 IMAGE_SIZE = (32, 32) # Small image size for faster training
@@ -17,6 +18,7 @@ BATCH_SIZE = 64
 LEARNING_RATE = 0.001
 NUM_EPOCHS = 10      # Increased epochs slightly for better training
 ABSTRACT_REPR_DIM = 32 # Dimension of the abstract representation vector
+VIS_IMAGES_COUNT = 100 # Number of test images to use for visualization
 
 # --- Data Generation ---
 
@@ -54,17 +56,19 @@ train_images, train_counts = generate_dataset(NUM_TRAIN_IMAGES, IMAGE_SIZE, MAX_
 test_images, test_counts = generate_dataset(NUM_TEST_IMAGES, IMAGE_SIZE, MAX_OBJECTS)
 print("Data generation complete.")
 
-# --- Unified Model Definition (Flax CNN + Dense) ---
+# --- Prepare data for visualization ---
+# Use a fixed subset of test images for consistent visualization across epochs
+vis_images = test_images[:VIS_IMAGES_COUNT]
+vis_counts = test_counts[:VIS_IMAGES_COUNT]
 
-class UnifiedModel(nn.Module):
-    """
-    A single model architecture capable of both encoding images and decoding counts.
-    """
+# --- Model Definitions (Flax CNN + Dense) ---
+
+class Encoder(nn.Module):
+    """ Encodes an image into an abstract representation vector. """
     abstract_repr_dim: int
 
     @nn.compact
-    def encode(self, x):
-        """ Encodes an image into an abstract representation vector. """
+    def __call__(self, x):
         # CNN layers
         x = nn.Conv(features=32, kernel_size=(3, 3), padding='SAME')(x)
         x = nn.relu(x)
@@ -86,9 +90,10 @@ class UnifiedModel(nn.Module):
         x = nn.relu(x) # Keep ReLU for the abstract representation
         return x
 
+class Decoder(nn.Module):
+    """ Decodes the abstract representation vector to predict the object count. """
     @nn.compact
-    def decode(self, x):
-        """ Decodes the abstract representation vector to predict the object count. """
+    def __call__(self, x):
         # Dense layers
         x = nn.Dense(features=64)(x)
         x = nn.relu(x)
@@ -97,57 +102,65 @@ class UnifiedModel(nn.Module):
         x = nn.relu(x)
 
         # Output layer: single neuron for regression (predicting count)
-        # No activation here, as we want a linear output for the count.
         x = nn.Dense(features=1)(x)
         return x.squeeze(-1) # Remove the last dimension of size 1
-
-    # The __call__ method can be used for initialization purposes
-    def __call__(self, x):
-         # This method is primarily for initializing parameters based on input shape
-         # We will use encode and decode methods directly in the training loop
-         return self.encode(x) # Or self.decode(x) depending on intended init path
 
 
 # --- Training Setup ---
 
-# Initialize two instances of the UnifiedModel with different random keys
+# Instantiate Encoder and Decoder modules
+encoder_module = Encoder(abstract_repr_dim=ABSTRACT_REPR_DIM)
+decoder_module = Decoder()
+
+# Initialize parameters for two sets of Encoder-Decoder pairs (for model A and model B)
 key = jax.random.PRNGKey(0)
-key_a, key_b = jax.random.split(key)
+key_a_enc, key_a_dec, key_b_enc, key_b_dec = jax.random.split(key, 4)
 
-model_a = UnifiedModel(abstract_repr_dim=ABSTRACT_REPR_DIM)
-model_b = UnifiedModel(abstract_repr_dim=ABSTRACT_REPR_DIM)
+dummy_image = jnp.ones((1, *IMAGE_SIZE, 1)) # Dummy input for encoder initialization
+dummy_abstract_repr = jnp.ones((1, ABSTRACT_REPR_DIM)) # Dummy input for decoder initialization
 
-# Initialize parameters for both models
-dummy_image = jnp.ones((1, *IMAGE_SIZE, 1)) # Batch size of 1
-params_a = model_a.init(key_a, dummy_image)['params']
-params_b = model_b.init(key_b, dummy_image)['params']
+# Initialize parameters for Model A's encoder and decoder
+params_a_enc = encoder_module.init(key_a_enc, dummy_image)['params']
+params_a_dec = decoder_module.init(key_a_dec, dummy_abstract_repr)['params']
+
+# Initialize parameters for Model B's encoder and decoder
+params_b_enc = encoder_module.init(key_b_enc, dummy_image)['params']
+params_b_dec = decoder_module.init(key_b_dec, dummy_abstract_repr)['params']
+
 
 # Combine parameters into a single dictionary for optimization
-all_params = {'model_a': params_a, 'model_b': params_b}
+# Model A's parameters include its encoder and decoder parts
+# Model B's parameters include its encoder and decoder parts
+all_params = {
+    'model_a': {'encoder': params_a_enc, 'decoder': params_a_dec},
+    'model_b': {'encoder': params_b_enc, 'decoder': params_b_dec}
+}
 
 # Define the optimizer
 optimizer = optax.adam(LEARNING_RATE)
 
-# Create the training state to hold parameters and optimizer state
+# Create the training state
 state = train_state.TrainState.create(
-    apply_fn=None, # apply_fn is not used directly here as we call model_a/b.apply
+    apply_fn=None, # apply_fn is not used directly here as we call module.apply
     params=all_params,
     tx=optimizer
 )
 
 # Define the loss function (Mean Squared Error) considering both communication paths
 def loss_fn(all_params, images, counts):
-    params_a = all_params['model_a']
-    params_b = all_params['model_b']
+    params_a_enc = all_params['model_a']['encoder']
+    params_a_dec = all_params['model_a']['decoder']
+    params_b_enc = all_params['model_b']['encoder']
+    params_b_dec = all_params['model_b']['decoder']
 
     # Path 1: Model A encodes, Model B decodes
-    abstract_repr_a = model_a.apply({'params': params_a}, images, method=model_a.encode)
-    predicted_count_b = model_b.apply({'params': params_b}, abstract_repr_a, method=model_b.decode)
+    abstract_repr_a = encoder_module.apply({'params': params_a_enc}, images)
+    predicted_count_b = decoder_module.apply({'params': params_b_dec}, abstract_repr_a)
     loss_ab = jnp.mean((predicted_count_b - counts)**2)
 
     # Path 2: Model B encodes, Model A decodes
-    abstract_repr_b = model_b.apply({'params': params_b}, images, method=model_b.encode)
-    predicted_count_a = model_a.apply({'params': params_a}, abstract_repr_b, method=model_a.decode)
+    abstract_repr_b = encoder_module.apply({'params': params_b_enc}, images)
+    predicted_count_a = decoder_module.apply({'params': params_a_dec}, abstract_repr_b)
     loss_ba = jnp.mean((predicted_count_a - counts)**2)
 
     # Total loss is the sum of losses from both paths
@@ -164,18 +177,20 @@ def train_step(state, images, counts):
 # Define the evaluation function
 @jax.jit
 def eval_fn(all_params, images, counts):
-    params_a = all_params['model_a']
-    params_b = all_params['model_b']
+    params_a_enc = all_params['model_a']['encoder']
+    params_a_dec = all_params['model_a']['decoder']
+    params_b_enc = all_params['model_b']['encoder']
+    params_b_dec = all_params['model_b']['decoder']
 
     # Evaluate Path A->B
-    abstract_repr_a = model_a.apply({'params': params_a}, images, method=model_a.encode)
-    predicted_count_b = model_b.apply({'params': params_b}, abstract_repr_a, method=model_b.decode)
+    abstract_repr_a = encoder_module.apply({'params': params_a_enc}, images)
+    predicted_count_b = decoder_module.apply({'params': params_b_dec}, abstract_repr_a)
     loss_ab = jnp.mean((predicted_count_b - counts)**2)
     mae_ab = jnp.mean(jnp.abs(predicted_count_b - counts))
 
     # Evaluate Path B->A
-    abstract_repr_b = model_b.apply({'params': params_b}, images, method=model_b.encode)
-    predicted_count_a = model_a.apply({'params': params_a}, abstract_repr_b, method=model_a.decode)
+    abstract_repr_b = encoder_module.apply({'params': params_b_enc}, images)
+    predicted_count_a = decoder_module.apply({'params': params_a_dec}, abstract_repr_b)
     loss_ba = jnp.mean((predicted_count_a - counts)**2)
     mae_ba = jnp.mean(jnp.abs(predicted_count_a - counts))
 
@@ -195,6 +210,10 @@ test_loss_ab_history = []
 test_loss_ba_history = []
 test_mae_ab_history = []
 test_mae_ba_history = []
+
+# Store abstract representations for visualization across epochs
+abstract_reprs_a_history = []
+abstract_reprs_b_history = []
 
 
 for epoch in range(NUM_EPOCHS):
@@ -222,6 +241,18 @@ for epoch in range(NUM_EPOCHS):
     test_loss_ba_history.append(test_loss_ba)
     test_mae_ab_history.append(test_mae_ab)
     test_mae_ba_history.append(test_mae_ba)
+
+    # --- Record abstract representations for visualization ---
+    params_a_enc = state.params['model_a']['encoder']
+    params_b_enc = state.params['model_b']['encoder']
+
+    # Compute abstract representations for the fixed visualization subset
+    abstract_reprs_a = encoder_module.apply({'params': params_a_enc}, vis_images)
+    abstract_reprs_b = encoder_module.apply({'params': params_b_enc}, vis_images)
+
+    # Store the representations (convert to numpy for easier handling later)
+    abstract_reprs_a_history.append(np.array(abstract_reprs_a))
+    abstract_reprs_b_history.append(np.array(abstract_reprs_b))
 
 
     epoch_time = time.time() - start_time
@@ -277,20 +308,70 @@ plt.grid(True)
 plt.show()
 
 
-# Example predictions on a few test images
-print("\nExample Predictions (A->B Path):")
-params_a = state.params['model_a']
-params_b = state.params['model_b']
+# --- Abstract Representation Visualization ---
 
-abstract_reprs_a = model_a.apply({'params': params_a}, test_images[:10], method=model_a.encode)
-predicted_counts_b = model_b.apply({'params': params_b}, abstract_reprs_a, method=model_b.decode)
+print("\nVisualizing Abstract Representations (PCA to 2D)...")
+
+# Choose which epoch's representations to visualize (e.g., the last epoch)
+epoch_to_visualize = NUM_EPOCHS - 1 # Index of the last epoch
+
+abstract_reprs_a_final = abstract_reprs_a_history[epoch_to_visualize]
+abstract_reprs_b_final = abstract_reprs_b_history[epoch_to_visualize]
+
+# Apply PCA to reduce dimensionality to 2D
+pca = PCA(n_components=2)
+
+# Fit and transform the representations for Model A's encoder
+abstract_reprs_a_2d = pca.fit_transform(abstract_reprs_a_final)
+
+# Fit and transform the representations for Model B's encoder
+# Note: We fit PCA separately for each model's representations
+pca_b = PCA(n_components=2)
+abstract_reprs_b_2d = pca_b.fit_transform(abstract_reprs_b_final)
+
+
+# Plot the 2D representations
+plt.figure(figsize=(14, 6))
+
+# Plot for Model A's Encoder
+plt.subplot(1, 2, 1) # 1 row, 2 columns, 1st plot
+scatter_a = plt.scatter(abstract_reprs_a_2d[:, 0], abstract_reprs_a_2d[:, 1], c=vis_counts, cmap='viridis', alpha=0.7)
+plt.colorbar(scatter_a, label='Object Count')
+plt.title(f'Model A Encoder Abstract Repr (Epoch {epoch_to_visualize + 1}, PCA to 2D)')
+plt.xlabel('PCA Component 1')
+plt.ylabel('PCA Component 2')
+plt.grid(True)
+
+# Plot for Model B's Encoder
+plt.subplot(1, 2, 2) # 1 row, 2 columns, 2nd plot
+scatter_b = plt.scatter(abstract_reprs_b_2d[:, 0], abstract_reprs_b_2d[:, 1], c=vis_counts, cmap='viridis', alpha=0.7)
+plt.colorbar(scatter_b, label='Object Count')
+plt.title(f'Model B Encoder Abstract Repr (Epoch {epoch_to_visualize + 1}, PCA to 2D)')
+plt.xlabel('PCA Component 1')
+plt.ylabel('PCA Component 2')
+plt.grid(True)
+
+plt.tight_layout() # Adjust layout to prevent overlap
+plt.show()
+
+# --- Example predictions on a few test images ---
+# (This part remains the same as before)
+print("\nExample Predictions (A->B Path):")
+params_a_enc = state.params['model_a']['encoder']
+params_b_dec = state.params['model_b']['decoder']
+
+abstract_reprs_a = encoder_module.apply({'params': params_a_enc}, test_images[:10])
+predicted_counts_b = decoder_module.apply({'params': params_b_dec}, abstract_reprs_a)
 
 for i in range(10):
     print(f"Image {i}: True Count = {test_counts[i]}, Predicted Count (A->B) = {predicted_counts_b[i]:.2f}")
 
 print("\nExample Predictions (B->A Path):")
-abstract_reprs_b = model_b.apply({'params': params_b}, test_images[:10], method=model_b.encode)
-predicted_counts_a = model_a.apply({'params': params_a}, abstract_reprs_b, method=model_a.decode)
+params_b_enc = state.params['model_b']['encoder']
+params_a_dec = state.params['model_a']['decoder']
+
+abstract_reprs_b = encoder_module.apply({'params': params_b_enc}, test_images[:10])
+predicted_counts_a = decoder_module.apply({'params': params_a_dec}, abstract_reprs_b)
 
 for i in range(10):
     print(f"Image {i}: True Count = {test_counts[i]}, Predicted Count (B->A) = {predicted_counts_a[i]:.2f}")
