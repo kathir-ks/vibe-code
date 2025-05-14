@@ -1,4 +1,4 @@
-### Objective: 
+### Objective: -> objective changed to converting to rust :)
 I want to port the whole v8 javascript engine from C++ language to go lang. 
 I know it is a very complex task. But it can be done by breaking the tasks into small atomic tasks. 
 

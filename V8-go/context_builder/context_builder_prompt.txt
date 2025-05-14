@@ -67,7 +67,11 @@ Structure for File level data:
     }
     <metadata>
     <dependencies>
-        
+        // include any iterfaces, function, class or any other code blocks that the code blocks in this file 
+        // depend on, follow the same code structure used for particular code block, 
+        // For example a function needs to know the structure of a class to access some of its methods, 
+        // just declare it here, if the full methods and attributes of the code block is not available 
+        // just mention their name or basic code block structure here, 
     </dependencies>
 <file>
 ```
