@@ -2,20 +2,25 @@ import jax
 import jax.numpy as jnp
 import flax.linen as nn
 import numpy as np
-import optax
 from functools import partial
-from typing import Sequence, Tuple, Dict, Any, Optional
-from flax.training import train_state
-
-# For checkpointing
-import orbax.checkpoint as ocp
-from etils import epath
+from typing import Sequence, Tuple, Dict, Any
+from flax import serialization
 import os
+import argparse # For command-line arguments
+from etils import epath # For path consistency
 
-# For visualization
-import matplotlib.pyplot as plt
+# --- Copied from training script: START ---
+# For TPU training, jax.device_count() will give the number of available devices.
+# On a v4-8, this should be 8.
+try:
+    NUM_DEVICES_INFERENCE = jax.device_count() # Can be different from training
+except RuntimeError: # Happens if JAX is not yet initialized or no TPU/GPU
+    print("JAX runtime not fully initialized or no accelerator found. Defaulting to 1 device for inference.")
+    NUM_DEVICES_INFERENCE = 1
+print(f"Number of JAX devices detected for inference: {NUM_DEVICES_INFERENCE}")
 
-# --- 1. Data Generation (Copied from training script for self-containment) ---
+
+# --- 1. Data Generation (copied) ---
 def generate_circle_image(key: jax.random.PRNGKey,
                           image_size: int = 1080,
                           min_circles: int = 0,
@@ -23,17 +28,10 @@ def generate_circle_image(key: jax.random.PRNGKey,
                           min_radius: int = 20,
                           max_radius: int = 100,
                           max_placement_attempts: int = 50) -> jnp.ndarray:
-    """
-    Generates a single binary image with non-overlapping circles.
-    Output image values are 0 (black background) or 1 (white circle).
-    """
     key_num_circles, key_circles_props = jax.random.split(key, 2)
-    
     num_circles = jax.random.randint(key_num_circles, shape=(), minval=min_circles, maxval=max_circles + 1)
-    
     canvas_np = np.zeros((image_size, image_size), dtype=np.float32)
-    placed_circles_params = [] # Store (x, y, r) of placed circles
-
+    placed_circles_params = []
     circle_keys = jax.random.split(key_circles_props, num_circles * max_placement_attempts + 1)
     key_idx = 0
 
@@ -44,13 +42,10 @@ def generate_circle_image(key: jax.random.PRNGKey,
                 break
             current_key = circle_keys[key_idx]
             key_idx += 1
-            
             key_radius, key_x, key_y = jax.random.split(current_key, 3)
-            
             radius = jax.random.randint(key_radius, shape=(), minval=min_radius, maxval=max_radius + 1)
             center_x = jax.random.randint(key_x, shape=(), minval=radius, maxval=image_size - radius)
             center_y = jax.random.randint(key_y, shape=(), minval=radius, maxval=image_size - radius)
-            
             overlap = False
             if placed_circles_params:
                 for pc_x, pc_y, pc_r in placed_circles_params:
@@ -59,7 +54,6 @@ def generate_circle_image(key: jax.random.PRNGKey,
                     if dist_sq < min_dist_sq:
                         overlap = True
                         break
-            
             if not overlap:
                 yy, xx = np.mgrid[:image_size, :image_size]
                 circle = (xx - float(center_x))**2 + (yy - float(center_y))**2 <= float(radius)**2
@@ -67,271 +61,253 @@ def generate_circle_image(key: jax.random.PRNGKey,
                 placed_circles_params.append((float(center_x), float(center_y), float(radius)))
                 placed_successfully = True
                 break
-
     return jnp.array(canvas_np).reshape((image_size, image_size, 1))
 
-# --- 2. Model Architecture (Encoder and Decoder - Copied for self-containment) ---
+# --- 2. Model Architecture (Encoder and Decoder) (copied) ---
 class Encoder(nn.Module):
     latent_dim_spatial: int = 32
-    latent_channels: int = 16 # Number of channels in the 32x32 latent image
-    features: Sequence[int] = (64, 128, 256, 512, 512) # Features for conv layers
+    latent_channels: int = 8
+    features: Sequence[int] = (64, 128, 256, 512, 512)
 
     @nn.compact
     def __call__(self, x: jnp.ndarray, training: bool) -> jnp.ndarray:
         x = nn.Conv(features=self.features[0], kernel_size=(4, 4), strides=(2, 2), padding='SAME', name='enc_conv_1')(x)
         x = nn.BatchNorm(use_running_average=not training, name='enc_bn_1')(x)
         x = nn.leaky_relu(x)
-
         x = nn.Conv(features=self.features[1], kernel_size=(4, 4), strides=(2, 2), padding='SAME', name='enc_conv_2')(x)
         x = nn.BatchNorm(use_running_average=not training, name='enc_bn_2')(x)
         x = nn.leaky_relu(x)
-
         x = nn.Conv(features=self.features[2], kernel_size=(4, 4), strides=(2, 2), padding='SAME', name='enc_conv_3')(x)
         x = nn.BatchNorm(use_running_average=not training, name='enc_bn_3')(x)
         x = nn.leaky_relu(x)
-
         x = nn.Conv(features=self.features[3], kernel_size=(3, 3), strides=(2, 2), padding='SAME', name='enc_conv_4')(x)
         x = nn.BatchNorm(use_running_average=not training, name='enc_bn_4')(x)
         x = nn.leaky_relu(x)
-
         x = nn.Conv(features=self.features[4], kernel_size=(3, 3), strides=(2, 2), padding='SAME', name='enc_conv_5')(x)
         x = nn.BatchNorm(use_running_average=not training, name='enc_bn_5')(x)
         x = nn.leaky_relu(x)
-
         x = nn.Conv(features=self.latent_channels, kernel_size=(3, 3), strides=(1, 1), padding='VALID', name='enc_conv_final')(x)
-        x = nn.tanh(x)
         return x
 
 class Decoder(nn.Module):
     original_image_size: int = 1080
-    encoder_features: Sequence[int] = (64, 128, 256, 512, 512) # Should match encoder's features in reverse
+    encoder_features: Sequence[int] = (64, 128, 256, 512, 512)
+    # Added latent_channels to match Encoder for consistency if needed by init
+    latent_channels: int = 8 # Needs to match the latent_channels of the encoder used to produce its input
 
     @nn.compact
     def __call__(self, z: jnp.ndarray, training: bool) -> jnp.ndarray:
         x = nn.ConvTranspose(features=self.encoder_features[4], kernel_size=(3, 3), strides=(1, 1), padding='VALID', name='dec_conv_t_1')(z)
         x = nn.BatchNorm(use_running_average=not training, name='dec_bn_1')(x)
         x = nn.relu(x)
-
         x = nn.ConvTranspose(features=self.encoder_features[3], kernel_size=(3, 3), strides=(2, 2), padding='SAME', name='dec_conv_t_2')(x)
         x = nn.BatchNorm(use_running_average=not training, name='dec_bn_2')(x)
         x = nn.relu(x)
-
         x = nn.ConvTranspose(features=self.encoder_features[2], kernel_size=(3, 3), strides=(2, 2), padding='SAME', name='dec_conv_t_3')(x)
         x = nn.BatchNorm(use_running_average=not training, name='dec_bn_3')(x)
         x = nn.relu(x)
-        if x.shape[1] == 136:
+        if x.shape[1] == 136: # Specific fix from training
             x = x[:, :135, :135, :]
-
         x = nn.ConvTranspose(features=self.encoder_features[1], kernel_size=(4, 4), strides=(2, 2), padding='SAME', name='dec_conv_t_4')(x)
         x = nn.BatchNorm(use_running_average=not training, name='dec_bn_4')(x)
         x = nn.relu(x)
-
         x = nn.ConvTranspose(features=self.encoder_features[0], kernel_size=(4, 4), strides=(2, 2), padding='SAME', name='dec_conv_t_5')(x)
         x = nn.BatchNorm(use_running_average=not training, name='dec_bn_5')(x)
         x = nn.relu(x)
-
         x = nn.ConvTranspose(features=1, kernel_size=(4, 4), strides=(2, 2), padding='SAME', name='dec_conv_t_final')(x)
-        
         if x.shape[1] != self.original_image_size or x.shape[2] != self.original_image_size:
-            x = jax.image.resize(x, 
-                                 (x.shape[0], self.original_image_size, self.original_image_size, x.shape[3]), 
+            x = jax.image.resize(x,
+                                 (x.shape[0], self.original_image_size, self.original_image_size, x.shape[3]),
                                  method='bilinear')
         return x
 
-# Define a TrainState for each component (Encoder/Decoder of Model A/B)
-class ComponentTrainState(train_state.TrainState):
-    batch_stats: Any # For BatchNorm
+# Binarization function (copied)
+def binarize_latent_with_ste(logits: jnp.ndarray) -> jnp.ndarray:
+    probs = jax.nn.sigmoid(logits)
+    binary_values = jnp.round(probs)
+    return probs + jax.lax.stop_gradient(binary_values - probs)
+# --- Copied from training script: END ---
 
-def create_train_state(key: jax.random.PRNGKey, model: nn.Module, dummy_input: jnp.ndarray, learning_rate: float):
-    """Creates an initial ComponentTrainState."""
-    variables = model.init(key, dummy_input, training=False) # Initialize with training=False for BN stats
-    params = variables['params']
-    batch_stats = variables.get('batch_stats', {}) # Handle models without BN
+
+# --- 4. Inference Specific Code ---
+
+def load_inference_params(param_path: epath.Path, model_to_init_for_shape: nn.Module, dummy_input_for_shape: jnp.ndarray, init_key: jax.random.PRNGKey):
+    """Loads params from a .msgpack file. Also returns initial batch_stats."""
+    if not param_path.exists():
+        raise FileNotFoundError(f"Parameter file not found: {param_path}")
+
+    with open(param_path, "rb") as f:
+        params_bytes = f.read()
+
+    # Initialize model to get the param structure and initial batch_stats
+    # The loaded params will replace model_init_vars['params']
+    # The model_init_vars['batch_stats'] will be used (these are the initial, not trained running averages)
+    model_init_vars = model_to_init_for_shape.init(init_key, dummy_input_for_shape, training=False)
     
-    tx = optax.adamw(learning_rate=learning_rate)
-    return ComponentTrainState.create(apply_fn=model.apply, params=params, tx=tx, batch_stats=batch_stats)
-
-# --- 3. Loading Checkpoint for Inference ---
-def load_model_for_inference(
-    base_ckpt_dir: str = './checkpoints', # Base directory containing model subdirectories
-    model_subdir: str = 'circle_autoencoder', # Subdirectory for the specific model
-    image_size: int = 1080,
-    latent_channels: int = 16,
-    learning_rate: float = 1e-4, # Learning rate is needed to initialize TrainState, but not for inference
-    target_step: Optional[int] = None # New: Optional specific step to load
-) -> Tuple[Encoder, Decoder, Dict[str, Any]]:
-    """
-    Loads the latest model checkpoint for inference.
-    Returns the initialized Encoder, Decoder, and their loaded parameters/batch_stats.
-    """
-    key = jax.random.PRNGKey(42) # Use a fixed key for initialization consistency
-    key_encA, key_decA, key_encB, key_decB = jax.random.split(key, 4)
-
-    # Initialize models (structure only)
-    encoder = Encoder(latent_channels=latent_channels)
-    decoder = Decoder(original_image_size=image_size)
+    # Deserialize params into a PyTree matching the structure of model_init_vars['params']
+    loaded_params = serialization.from_bytes(model_init_vars['params'], params_bytes)
     
-    dummy_image_input = jnp.ones((1, image_size, image_size, 1), dtype=jnp.float32)
-    dummy_latent_input = jnp.ones((1, encoder.latent_dim_spatial, encoder.latent_dim_spatial, latent_channels), dtype=jnp.float32)
+    return loaded_params, model_init_vars.get('batch_stats', {})
 
-    # Create dummy states to define the structure for Orbax restore
-    state_enc_A_dummy = create_train_state(key_encA, encoder, dummy_image_input, learning_rate)
-    state_dec_A_dummy = create_train_state(key_decA, decoder, dummy_latent_input, learning_rate)
-    state_enc_B_dummy = create_train_state(key_encB, encoder, dummy_image_input, learning_rate)
-    state_dec_B_dummy = create_train_state(key_decB, decoder, dummy_latent_input, learning_rate)
 
-    # These dummy states define the structure Orbax expects to restore into
-    # Moved this block AFTER dummy states are defined
-    restoration_structure = {
-        'state_enc_A': state_enc_A_dummy,
-        'state_dec_A': state_dec_A_dummy,
-        'state_enc_B': state_enc_B_dummy,
-        'state_dec_B': state_dec_B_dummy,
-        'epoch': 0,
-        'step': 0
-    }
+def visualize_array_terminal(arr: np.ndarray, title: str, threshold: float = 0.5, max_dim: int = 40):
+    """Visualizes a 2D numpy array in the terminal."""
+    if arr.ndim == 3 and arr.shape[-1] == 1: # (H, W, 1)
+        arr = arr.squeeze(axis=-1)
+    elif arr.ndim != 2:
+        print(f"Warning: Cannot visualize array with shape {arr.shape} for title '{title}'. Expected 2D or (H,W,1).")
+        return
 
-    # Construct the absolute path to the specific model's checkpoint directory
-    full_model_ckpt_path = epath.Path(os.path.abspath(os.path.join(base_ckpt_dir, model_subdir)))
-    mngr = ocp.CheckpointManager(full_model_ckpt_path)
+    # Downsample for terminal display
+    h, w = arr.shape
+    scale_h = max(1, int(np.ceil(h / max_dim)))
+    scale_w = max(1, int(np.ceil(w / (max_dim * 2)))) # Characters are taller than wide
 
-    # Determine which step to load
-    step_to_load = target_step if target_step is not None else mngr.latest_step()
+    # Simple block averaging for downsampling
+    # For binary, mode might be better, but average is fine
+    small_arr = np.zeros((h // scale_h, w // scale_w))
+    for i in range(small_arr.shape[0]):
+        for j in range(small_arr.shape[1]):
+            small_arr[i,j] = np.mean(arr[i*scale_h:(i+1)*scale_h, j*scale_w:(j+1)*scale_w])
 
-    if step_to_load is None:
-        raise FileNotFoundError(
-            f"No checkpoint found in {full_model_ckpt_path}. "
-            "Please ensure training has been run and completed successfully, "
-            "or specify a valid `target_step` if `latest_step()` is not working."
-        )
+    print(f"\n--- {title} (approx. {small_arr.shape[0]}x{small_arr.shape[1]}) ---")
+    for row in small_arr:
+        for val in row:
+            print('█' if val > threshold else ' ', end='')
+        print()
+    print("-" * (small_arr.shape[1] + 6))
 
-    print(f"Loading checkpoint from step {step_to_load}...")
-    # Wrap the restoration structure in ocp.args.Composite, unpacking the dictionary
-    restored_items = mngr.restore(step_to_load, args=ocp.args.Composite(**restoration_structure))
-    mngr.close() # Close the manager after loading
 
-    # Extract the parameters and batch stats for Model A's Encoder and Model B's Decoder
-    # (or vice-versa, depending on which communication path you want to test)
-    # Let's use Model A's Encoder and Model B's Decoder for demonstration
-    enc_A_params = restored_items['state_enc_A'].params
-    enc_A_batch_stats = restored_items['state_enc_A'].batch_stats
-
-    dec_B_params = restored_items['state_dec_B'].params
-    dec_B_batch_stats = restored_items['state_dec_B'].batch_stats
-
-    print("Model loaded successfully.")
-    return encoder, decoder, {
-        'enc_A_params': enc_A_params,
-        'enc_A_batch_stats': enc_A_batch_stats,
-        'dec_B_params': dec_B_params,
-        'dec_B_batch_stats': dec_B_batch_stats,
-    }
-
-# --- 4. Inference and Visualization ---
-def run_inference_and_visualize(
-    image_size: int = 1080,
-    latent_channels: int = 16,
-    base_ckpt_dir: str = './checkpoints', # Base directory for checkpoints
-    model_subdir: str = 'circle_autoencoder', # Subdirectory for the specific model
-    target_step: Optional[int] = 13390 # New: Specify a known good step to load
+def run_inference(
+    image_size: int,
+    latent_channels: int,
+    checkpoint_step: int,
+    base_ckpt_dir_str: str,
+    seed: int = 42
 ):
-    # Load the models and their states
-    encoder_model, decoder_model, loaded_states = load_model_for_inference(
-        base_ckpt_dir=base_ckpt_dir, # Pass base directory
-        model_subdir=model_subdir,   # Pass model subdirectory
-        image_size=image_size,
-        latent_channels=latent_channels,
-        target_step=target_step      # Pass the target step
+    """Runs inference: load models, generate image, encode, decode, visualize."""
+    key = jax.random.PRNGKey(seed)
+    key_gen, key_enc_init, key_dec_init = jax.random.split(key, 3)
+
+    # --- Configuration (Must match training for the loaded checkpoint) ---
+    # These should ideally be stored with the checkpoint or inferred,
+    # but for now, we pass them or use defaults from the model definition.
+    ENCODER_LATENT_CHANNELS = latent_channels
+    ENCODER_LATENT_SPATIAL_DIM = 32 # Based on architecture, 1080 / (2^5) then conv 3x3 valid = 34-2 = 32.
+                                    # 1080 -> 540 -> 270 -> 135 -> 68 -> 34 -> (VALID 3x3) -> 32
+
+    # --- Initialize Models ---
+    encoder = Encoder(latent_channels=ENCODER_LATENT_CHANNELS, latent_dim_spatial=ENCODER_LATENT_SPATIAL_DIM)
+    decoder = Decoder(original_image_size=image_size, latent_channels=ENCODER_LATENT_CHANNELS) # Pass latent_channels to Decoder too
+
+    # --- Prepare Dummy Inputs for Initialization ---
+    dummy_image_input = jnp.ones((1, image_size, image_size, 1), dtype=jnp.float32)
+    dummy_latent_input = jnp.ones(
+        (1, ENCODER_LATENT_SPATIAL_DIM, ENCODER_LATENT_SPATIAL_DIM, ENCODER_LATENT_CHANNELS),
+        dtype=jnp.float32
     )
 
-    enc_A_params = loaded_states['enc_A_params']
-    enc_A_batch_stats = loaded_states['enc_A_batch_stats']
-    dec_B_params = loaded_states['dec_B_params']
-    dec_B_batch_stats = loaded_states['dec_B_batch_stats']
-
-    # Generate a new random image for inference
-    inference_key = jax.random.PRNGKey(12345) # Use a different key for inference data
-    input_image = generate_circle_image(inference_key, image_size=image_size)
+    # --- Load Parameters ---
+    base_ckpt_dir = epath.Path(os.path.abspath(base_ckpt_dir_str))
+    inference_weights_dir = base_ckpt_dir.parent / f"{base_ckpt_dir.name}_inference_weights"
     
-    # Add batch dimension for inference (model expects (B, H, W, C))
-    input_image_batch = jnp.expand_dims(input_image, axis=0)
+    enc_A_param_path = inference_weights_dir / f"enc_A_params_step_{checkpoint_step}.msgpack"
+    dec_A_param_path = inference_weights_dir / f"dec_A_params_step_{checkpoint_step}.msgpack"
 
-    # Perform inference (forward pass)
-    # Note: For inference, `training=False` is used for BatchNorm layers
-    # and `mutable=[]` as we don't update batch_stats during inference.
+    print(f"Loading Encoder A parameters from: {enc_A_param_path}")
+    enc_A_params, enc_A_batch_stats = load_inference_params(enc_A_param_path, encoder, dummy_image_input, key_enc_init)
     
-    # Encode the input image using Model A's encoder
+    print(f"Loading Decoder A parameters from: {dec_A_param_path}")
+    dec_A_params, dec_A_batch_stats = load_inference_params(dec_A_param_path, decoder, dummy_latent_input, key_dec_init)
+
     variables_enc_A = {'params': enc_A_params, 'batch_stats': enc_A_batch_stats}
-    latent_representation = encoder_model.apply(
-        variables_enc_A, input_image_batch, training=False, mutable=[]
-    )
-    # The latent_representation will be a JAX array of shape (1, 32, 32, latent_channels)
+    variables_dec_A = {'params': dec_A_params, 'batch_stats': dec_A_batch_stats}
 
-    # Decode the latent representation using Model B's decoder
-    variables_dec_B = {'params': dec_B_params, 'batch_stats': dec_B_batch_stats}
-    reconstructed_image_logits = decoder_model.apply(
-        variables_dec_B, latent_representation, training=False, mutable=[]
-    )
-    # Apply sigmoid to get probabilities for the binary image
-    reconstructed_image = jax.nn.sigmoid(reconstructed_image_logits)
+    # --- Generate a Sample Image ---
+    print(f"\nGenerating a sample image ({image_size}x{image_size})...")
+    # For inference, generate one image, add batch dim
+    original_image_single = generate_circle_image(key_gen, image_size=image_size, min_circles=5, max_circles=15)
+    original_image_batch = jnp.expand_dims(original_image_single, axis=0) # (1, H, W, C)
 
-    # Convert JAX arrays to NumPy for visualization
-    input_image_np = np.array(input_image)
-    latent_representation_np = np.array(latent_representation).squeeze(axis=0) # Remove batch dim
-    reconstructed_image_np = np.array(reconstructed_image).squeeze(axis=0) # Remove batch dim
+    # --- Perform Inference ---
+    print("Encoding image with Encoder A...")
+    # Note: training=False is crucial for BatchNorm to use running averages (even if initial ones)
+    logits_Z_from_A = encoder.apply(variables_enc_A, original_image_batch, training=False)
 
-    # --- Visualization ---
-    plt.figure(figsize=(18, 6))
+    print("Binarizing latent representation...")
+    latent_Z_for_dec_A = binarize_latent_with_ste(logits_Z_from_A) # (1, 32, 32, latent_channels)
 
-    # Plot Input Image
-    plt.subplot(1, 3, 1)
-    plt.imshow(input_image_np.squeeze(), cmap='gray', vmin=0, vmax=1)
-    plt.title('Original Input Image')
-    plt.axis('off')
+    print("Decoding latent representation with Decoder A...")
+    reconstructed_logits_by_A = decoder.apply(variables_dec_A, latent_Z_for_dec_A, training=False)
+    reconstructed_image_probs_by_A = jax.nn.sigmoid(reconstructed_logits_by_A) # (1, H, W, 1)
 
-    # Plot Latent Image
-    plt.subplot(1, 3, 2)
-    # For visualization, we can take the mean across latent channels or pick one channel
-    # Taking the mean can give a general idea of activation
-    latent_visual = np.mean(latent_representation_np, axis=-1) # Mean across channels
-    # Or, to visualize a specific channel:
-    # latent_visual = latent_representation_np[:, :, 0] # First channel
+    # --- Convert JAX arrays to NumPy for visualization ---
+    # Squeeze the batch dimension for visualization
+    original_np = np.array(original_image_batch[0])
+    latent_np = np.array(latent_Z_for_dec_A[0]) # (32, 32, latent_channels)
+    reconstructed_np = np.array(reconstructed_image_probs_by_A[0])
+
+    # --- Visualize ---
+    print("\n" + "="*50)
+    print("           INFERENCE RESULTS (TERMINAL VIZ)")
+    print("="*50)
+
+    visualize_array_terminal(original_np, "Original Image", threshold=0.5)
     
-    plt.imshow(latent_visual, cmap='viridis') # Use a colormap suitable for continuous values
-    plt.title(f'Latent Representation ({latent_visual.shape[0]}x{latent_visual.shape[1]})')
-    plt.colorbar(label='Activation Value')
-    plt.axis('off')
+    # Visualize the first channel of the latent space
+    visualize_array_terminal(latent_np[:, :, 0], "Latent Representation (Channel 0)", threshold=0.5)
+    if latent_np.shape[-1] > 1:
+         visualize_array_terminal(latent_np[:, :, 1], "Latent Representation (Channel 1)", threshold=0.5)
 
-    # Plot Reconstructed Image
-    plt.subplot(1, 3, 3)
-    plt.imshow(reconstructed_image_np.squeeze(), cmap='gray', vmin=0, vmax=1)
-    plt.title('Reconstructed Image')
-    plt.axis('off')
 
-    plt.tight_layout()
-    plt.show()
+    visualize_array_terminal(reconstructed_np, "Reconstructed Image (from A)", threshold=0.5)
 
-    print("\nVisualization complete. Displaying input, latent, and reconstructed images.")
+    print(f"\nOriginal image shape: {original_np.shape}")
+    print(f"Latent representation shape: {latent_np.shape}")
+    print(f"Reconstructed image shape: {reconstructed_np.shape}")
+
+    # You can also save these as images if matplotlib is available:
+    # import matplotlib.pyplot as plt
+    # plt.imsave("original_image.png", original_np.squeeze(), cmap='gray')
+    # plt.imsave("latent_channel0.png", latent_np[:,:,0], cmap='gray')
+    # plt.imsave("reconstructed_image.png", reconstructed_np.squeeze(), cmap='gray')
+    # print("\nSaved images: original_image.png, latent_channel0.png, reconstructed_image.png")
 
 if __name__ == '__main__':
-    # Configuration for inference
-    # Ensure these match the values used during training if you want to load correctly
-    INFERENCE_IMAGE_SIZE = 1080
-    INFERENCE_LATENT_CHANNELS = 16
-    
-    # IMPORTANT: Set BASE_CHECKPOINT_DIRECTORY to the parent directory
-    # that contains your specific model's checkpoint subdirectory (e.g., 'circle_autoencoder').
-    BASE_CHECKPOINT_DIRECTORY = './checkpoints' 
-    MODEL_SUBDIRECTORY = 'circle_autoencoder'
+    parser = argparse.ArgumentParser(description="Run inference for circle generation model.")
+    parser.add_argument(
+        "--image_size", type=int, default=1080,
+        help="Size of the images (must match training)."
+    )
+    parser.add_argument(
+        "--latent_channels", type=int, default=4, # Or 8, depending on what you trained with
+        help="Number of latent channels (must match training)."
+    )
+    parser.add_argument(
+        "--checkpoint_step", type=int, required=True,
+        help="Global step number of the inference checkpoint to load."
+    )
+    parser.add_argument(
+        "--ckpt_dir", type=str, default="./checkpoints_comm_circle",
+        help="Base directory where training checkpoints (and thus inference weights subfolder) are stored."
+    )
+    parser.add_argument(
+        "--seed", type=int, default=42,
+        help="Random seed for image generation and model initialization keys."
+    )
 
-    # Try loading a specific step. If this works, the issue is with mngr.latest_step().
-    # If it still fails, the checkpoint files themselves might be corrupted or incomplete.
-    TARGET_CHECKPOINT_STEP = 13390 # Or another step like 13370, 13380
+    args = parser.parse_args()
 
-    run_inference_and_visualize(
-        image_size=INFERENCE_IMAGE_SIZE,
-        latent_channels=INFERENCE_LATENT_CHANNELS,
-        base_ckpt_dir=BASE_CHECKPOINT_DIRECTORY,
-        model_subdir=MODEL_SUBDIRECTORY,
-        target_step=TARGET_CHECKPOINT_STEP
+    # Example check for Decoder's latent_channels parameter:
+    # If your Encoder was trained with latent_channels=X, the Decoder also needs to know this
+    # to correctly define its first ConvTranspose layer's input.
+    # The current Decoder class takes `latent_channels` as an argument.
+    # This should be consistent with Encoder's output.
+
+    run_inference(
+        image_size=args.image_size,
+        latent_channels=args.latent_channels,
+        checkpoint_step=args.checkpoint_step,
+        base_ckpt_dir_str=args.ckpt_dir,
+        seed=args.seed
     )
