@@ -6,3 +6,9 @@ https://arxiv.org/pdf/2404.18852
 
 ### Converting a codebase to system design using chatgpt
 https://github.com/ahmedkhaleel2004/gitdiagram?utm_source=alphasignal
+
+
+### Tools for visualizing the graph
+Graphviz
+
+sourcegraph

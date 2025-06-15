@@ -1,0 +1,4 @@
+# Install required packages (Colab already has most JAX/TPU dependencies)
+pip install --upgrade jax[tpu] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+pip install flax optax
+pip install matplotlib seaborn

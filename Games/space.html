@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Space Explorer</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            overflow: hidden;
+            font-family: 'Courier New', monospace;
+            cursor: none;
+        }
+        
+        #gameContainer {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #00ff00;
+            z-index: 100;
+            font-size: 18px;
+            text-shadow: 0 0 10px #00ff00;
+        }
+        
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 20px;
+            height: 20px;
+            border: 2px solid #00ff00;
+            border-radius: 50%;
+            z-index: 100;
+            box-shadow: 0 0 10px #00ff00;
+        }
+        
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: #00ff00;
+            z-index: 100;
+            font-size: 14px;
+            text-shadow: 0 0 5px #00ff00;
+        }
+        
+        #gameOver {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ff0040;
+            font-size: 32px;
+            text-align: center;
+            z-index: 200;
+            display: none;
+            text-shadow: 0 0 20px #ff0040;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <div id="ui">
+            <div>Score: <span id="score">0</span></div>
+            <div>Energy: <span id="energy">100</span></div>
+            <div>Orbs Collected: <span id="collected">0</span>/10</div>
+        </div>
+        
+        <div id="crosshair"></div>
+        
+        <div id="instructions">
+            WASD: Move | Mouse: Look | Space: Boost | Collect all orbs!
+        </div>
+        
+        <div id="gameOver">
+            <div>MISSION COMPLETE!</div>
+            <div style="font-size: 16px; margin-top: 20px;">Press R to restart</div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        class SpaceExplorer {
+            constructor() {
+                this.scene = new THREE.Scene();
+                this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+                this.renderer = new THREE.WebGLRenderer({ antialias: true });
+                
+                this.score = 0;
+                this.energy = 100;
+                this.collected = 0;
+                this.totalOrbs = 10;
+                this.gameWon = false;
+                
+                this.velocity = new THREE.Vector3();
+                this.moveSpeed = 0.1;
+                this.boostSpeed = 0.3;
+                this.friction = 0.95;
+                
+                this.keys = {};
+                this.mouse = { x: 0, y: 0 };
+                this.mouseMovement = { x: 0, y: 0 };
+                
+                this.orbs = [];
+                this.stars = [];
+                this.planets = [];
+                
+                this.init();
+                this.createWorld();
+                this.bindEvents();
+                this.animate();
+            }
+            
+            init() {
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.setClearColor(0x000005);
+                this.renderer.shadowMap.enabled = true;
+                this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                document.getElementById('gameContainer').appendChild(this.renderer.domElement);
+                
+                this.camera.position.set(0, 0, 5);
+                
+                // Add ambient light
+                const ambientLight = new THREE.AmbientLight(0x404040, 0.3);
+                this.scene.add(ambientLight);
+                
+                // Add directional light
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+                directionalLight.position.set(10, 10, 5);
+                directionalLight.castShadow = true;
+                this.scene.add(directionalLight);
+            }
+            
+            createWorld() {
+                // Create starfield
+                this.createStarfield();
+                
+                // Create planets
+                this.createPlanets();
+                
+                // Create collectible orbs
+                this.createOrbs();
+                
+                // Create space debris
+                this.createDebris();
+            }
+            
+            createStarfield() {
+                const starGeometry = new THREE.BufferGeometry();
+                const starMaterial = new THREE.PointsMaterial({ color: 0xffffff, size: 2 });
+                
+                const starVertices = [];
+                for (let i = 0; i < 1000; i++) {
+                    const x = (Math.random() - 0.5) * 2000;
+                    const y = (Math.random() - 0.5) * 2000;
+                    const z = (Math.random() - 0.5) * 2000;
+                    starVertices.push(x, y, z);
+                }
+                
+                starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starVertices, 3));
+                const stars = new THREE.Points(starGeometry, starMaterial);
+                this.scene.add(stars);
+            }
+            
+            createPlanets() {
+                const planetData = [
+                    { pos: [50, 20, -100], size: 15, color: 0xff4444 },
+                    { pos: [-80, -30, -150], size: 20, color: 0x4444ff },
+                    { pos: [120, -50, -200], size: 12, color: 0x44ff44 },
+                    { pos: [-150, 40, -80], size: 18, color: 0xffff44 }
+                ];
+                
+                planetData.forEach(data => {
+                    const geometry = new THREE.SphereGeometry(data.size, 32, 32);
+                    const material = new THREE.MeshPhongMaterial({ 
+                        color: data.color,
+                        shininess: 30
+                    });
+                    const planet = new THREE.Mesh(geometry, material);
+                    planet.position.set(...data.pos);
+                    planet.castShadow = true;
+                    planet.receiveShadow = true;
+                    this.scene.add(planet);
+                    this.planets.push(planet);
+                });
+            }
+            
+            createOrbs() {
+                for (let i = 0; i < this.totalOrbs; i++) {
+                    const geometry = new THREE.SphereGeometry(2, 16, 16);
+                    const material = new THREE.MeshBasicMaterial({ 
+                        color: 0x00ffff,
+                        transparent: true,
+                        opacity: 0.8
+                    });
+                    const orb = new THREE.Mesh(geometry, material);
+                    
+                    // Random position
+                    orb.position.set(
+                        (Math.random() - 0.5) * 200,
+                        (Math.random() - 0.5) * 200,
+                        (Math.random() - 0.5) * 200
+                    );
+                    
+                    // Add glow effect
+                    const glowGeometry = new THREE.SphereGeometry(3, 16, 16);
+                    const glowMaterial = new THREE.MeshBasicMaterial({
+                        color: 0x00ffff,
+                        transparent: true,
+                        opacity: 0.3
+                    });
+                    const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+                    orb.add(glow);
+                    
+                    this.scene.add(orb);
+                    this.orbs.push(orb);
+                }
+            }
+            
+            createDebris() {
+                for (let i = 0; i < 50; i++) {
+                    const geometry = new THREE.BoxGeometry(
+                        Math.random() * 3 + 1,
+                        Math.random() * 3 + 1,
+                        Math.random() * 3 + 1
+                    );
+                    const material = new THREE.MeshPhongMaterial({ 
+                        color: 0x666666 
+                    });
+                    const debris = new THREE.Mesh(geometry, material);
+                    
+                    debris.position.set(
+                        (Math.random() - 0.5) * 300,
+                        (Math.random() - 0.5) * 300,
+                        (Math.random() - 0.5) * 300
+                    );
+                    
+                    debris.rotation.set(
+                        Math.random() * Math.PI,
+                        Math.random() * Math.PI,
+                        Math.random() * Math.PI
+                    );
+                    
+                    this.scene.add(debris);
+                }
+            }
+            
+            bindEvents() {
+                // Keyboard events
+                document.addEventListener('keydown', (e) => {
+                    this.keys[e.code] = true;
+                    if (e.code === 'KeyR' && this.gameWon) {
+                        this.restart();
+                    }
+                });
+                
+                document.addEventListener('keyup', (e) => {
+                    this.keys[e.code] = false;
+                });
+                
+                // Mouse events
+                document.addEventListener('mousemove', (e) => {
+                    this.mouseMovement.x = e.movementX || 0;
+                    this.mouseMovement.y = e.movementY || 0;
+                });
+                
+                // Lock pointer on click
+                document.addEventListener('click', () => {
+                    document.body.requestPointerLock();
+                });
+                
+                // Window resize
+                window.addEventListener('resize', () => {
+                    this.camera.aspect = window.innerWidth / window.innerHeight;
+                    this.camera.updateProjectionMatrix();
+                    this.renderer.setSize(window.innerWidth, window.innerHeight);
+                });
+            }
+            
+            handleInput() {
+                if (this.gameWon) return;
+                
+                // Mouse look
+                const sensitivity = 0.002;
+                this.camera.rotation.y -= this.mouseMovement.x * sensitivity;
+                this.camera.rotation.x -= this.mouseMovement.y * sensitivity;
+                this.camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, this.camera.rotation.x));
+                this.mouseMovement.x = 0;
+                this.mouseMovement.y = 0;
+                
+                // Movement
+                const forward = new THREE.Vector3(0, 0, -1);
+                const right = new THREE.Vector3(1, 0, 0);
+                const up = new THREE.Vector3(0, 1, 0);
+                
+                forward.applyQuaternion(this.camera.quaternion);
+                right.applyQuaternion(this.camera.quaternion);
+                up.applyQuaternion(this.camera.quaternion);
+                
+                const speed = this.keys['Space'] && this.energy > 0 ? this.boostSpeed : this.moveSpeed;
+                
+                if (this.keys['KeyW']) {
+                    this.velocity.add(forward.multiplyScalar(speed));
+                }
+                if (this.keys['KeyS']) {
+                    this.velocity.add(forward.multiplyScalar(-speed));
+                }
+                if (this.keys['KeyA']) {
+                    this.velocity.add(right.multiplyScalar(-speed));
+                }
+                if (this.keys['KeyD']) {
+                    this.velocity.add(right.multiplyScalar(speed));
+                }
+                if (this.keys['KeyQ']) {
+                    this.velocity.add(up.multiplyScalar(-speed));
+                }
+                if (this.keys['KeyE']) {
+                    this.velocity.add(up.multiplyScalar(speed));
+                }
+                
+                // Boost energy consumption
+                if (this.keys['Space'] && this.energy > 0) {
+                    this.energy = Math.max(0, this.energy - 1);
+                } else if (!this.keys['Space'] && this.energy < 100) {
+                    this.energy = Math.min(100, this.energy + 0.5);
+                }
+            }
+            
+            update() {
+                if (this.gameWon) return;
+                
+                // Apply velocity and friction
+                this.camera.position.add(this.velocity);
+                this.velocity.multiplyScalar(this.friction);
+                
+                // Animate orbs
+                this.orbs.forEach((orb, index) => {
+                    orb.rotation.y += 0.02;
+                    orb.children[0].rotation.y -= 0.01;
+                    
+                    // Check collection
+                    const distance = this.camera.position.distanceTo(orb.position);
+                    if (distance < 5) {
+                        this.collectOrb(index);
+                    }
+                });
+                
+                // Animate planets
+                this.planets.forEach(planet => {
+                    planet.rotation.y += 0.005;
+                });
+                
+                // Update UI
+                this.updateUI();
+                
+                // Check win condition
+                if (this.collected >= this.totalOrbs && !this.gameWon) {
+                    this.winGame();
+                }
+            }
+            
+            collectOrb(index) {
+                const orb = this.orbs[index];
+                this.scene.remove(orb);
+                this.orbs.splice(index, 1);
+                
+                this.collected++;
+                this.score += 100;
+                this.energy = Math.min(100, this.energy + 20);
+            }
+            
+            updateUI() {
+                document.getElementById('score').textContent = this.score;
+                document.getElementById('energy').textContent = Math.floor(this.energy);
+                document.getElementById('collected').textContent = this.collected;
+            }
+            
+            winGame() {
+                this.gameWon = true;
+                document.getElementById('gameOver').style.display = 'block';
+            }
+            
+            restart() {
+                // Reset game state
+                this.score = 0;
+                this.energy = 100;
+                this.collected = 0;
+                this.gameWon = false;
+                
+                // Reset camera position
+                this.camera.position.set(0, 0, 5);
+                this.camera.rotation.set(0, 0, 0);
+                this.velocity.set(0, 0, 0);
+                
+                // Remove existing orbs
+                this.orbs.forEach(orb => this.scene.remove(orb));
+                this.orbs = [];
+                
+                // Create new orbs
+                this.createOrbs();
+                
+                // Hide game over screen
+                document.getElementById('gameOver').style.display = 'none';
+            }
+            
+            animate() {
+                requestAnimationFrame(() => this.animate());
+                
+                this.handleInput();
+                this.update();
+                this.renderer.render(this.scene, this.camera);
+            }
+        }
+        
+        // Start the game
+        const game = new SpaceExplorer();
+    </script>
+</body>
+</html>
