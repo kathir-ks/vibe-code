@@ -12,3 +12,6 @@ https://github.com/ahmedkhaleel2004/gitdiagram?utm_source=alphasignal
 Graphviz
 
 sourcegraph
+
+### Attempt to build a feature of cursor ide
+https://blog.lancedb.com/rag-codebase-1/

@@ -61,9 +61,9 @@ def convert_file(file_path: str, model) -> Dict[str, Any]:
                 logging.warning(f"Skipping empty file: {file_path}")
                 return None
             
-            if len(file_content) > 100000:  # Truncate large files to avoid token limits
+            if len(file_content) > 1000000:  # Truncate large files to avoid token limits
                 logging.warning(f"File {file_path} is large ({len(file_content)} chars). Truncating...")
-                file_content = file_content[:100000] + "\n// ... [truncated due to size]"
+                file_content = file_content[:1000000] + "\n// ... [truncated due to size]"
             
             # Determine if it's a header or implementation file
             is_header = file_path.endswith(('.h', '.hpp', '.hxx'))

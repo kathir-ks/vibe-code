@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>F-35 Lightning II Flight Simulator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: linear-gradient(to bottom, #87CEEB 0%, #98D8E8 50%, #B0E0E6 100%);
+            font-family: 'Courier New', monospace;
+        }
+
+        #container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+
+        #hud {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 100;
+            color: #00ff00;
+            font-weight: bold;
+            text-shadow: 0 0 10px #00ff00;
+        }
+
+        .hud-element {
+            position: absolute;
+            background: rgba(0, 20, 0, 0.7);
+            border: 1px solid #00ff00;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 14px;
+            backdrop-filter: blur(5px);
+        }
+
+        #speed-alt {
+            top: 20px;
+            left: 20px;
+        }
+
+        #attitude {
+            top: 20px;
+            right: 20px;
+        }
+
+        #throttle-info {
+            bottom: 20px;
+            left: 20px;
+        }
+
+        #controls {
+            bottom: 20px;
+            right: 20px;
+            color: #ffff00;
+            border-color: #ffff00;
+            font-size: 12px;
+        }
+
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 30px;
+            height: 30px;
+            border: 2px solid #00ff00;
+            border-radius: 50%;
+        }
+
+        #crosshair::before,
+        #crosshair::after {
+            content: '';
+            position: absolute;
+            background: #00ff00;
+        }
+
+        #crosshair::before {
+            top: 50%;
+            left: -10px;
+            right: -10px;
+            height: 1px;
+            transform: translateY(-50%);
+        }
+
+        #crosshair::after {
+            left: 50%;
+            top: -10px;
+            bottom: -10px;
+            width: 1px;
+            transform: translateX(-50%);
+        }
+
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 24px;
+            text-align: center;
+            z-index: 200;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="loading">Loading F-35 Lightning II Flight Simulator...</div>
+        
+        <div id="hud" style="display: none;">
+            <div id="speed-alt" class="hud-element">
+                <div>SPEED: <span id="speed">0</span> KTS</div>
+                <div>ALT: <span id="altitude">0</span> FT</div>
+                <div>FUEL: <span id="fuel">100</span>%</div>
+            </div>
+            
+            <div id="attitude" class="hud-element">
+                <div>PITCH: <span id="pitch">0</span>°</div>
+                <div>ROLL: <span id="roll">0</span>°</div>
+                <div>YAW: <span id="yaw">0</span>°</div>
+            </div>
+            
+            <div id="throttle-info" class="hud-element">
+                <div>THROTTLE: <span id="throttle">0</span>%</div>
+                <div>ENGINE: <span id="engine-status">IDLE</span></div>
+                <div>GEAR: <span id="gear-status">UP</span></div>
+            </div>
+            
+            <div id="controls" class="hud-element">
+                <div>WASD: Pitch/Yaw</div>
+                <div>Q/E: Roll</div>
+                <div>Shift/Ctrl: Throttle</div>
+                <div>G: Landing Gear</div>
+                <div>Mouse: Look Around</div>
+            </div>
+            
+            <div id="crosshair"></div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        class F35FlightSimulator {
+            constructor() {
+                this.scene = new THREE.Scene();
+                this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 50000);
+                this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+                
+                this.aircraft = null;
+                this.cameraOffset = new THREE.Vector3(0, 5, -15);
+                this.velocity = new THREE.Vector3(0, 0, 0);
+                this.angularVelocity = new THREE.Vector3(0, 0, 0);
+                
+                // Flight parameters
+                this.throttle = 0;
+                this.speed = 0;
+                this.altitude = 1000;
+                this.fuel = 100;
+                this.gearDown = false;
+                
+                // Control states
+                this.keys = {};
+                this.mouseX = 0;
+                this.mouseY = 0;
+                
+                this.init();
+                this.setupEventListeners();
+                this.animate();
+            }
+
+            init() {
+                // Renderer setup
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.setClearColor(0x87CEEB, 1);
+                this.renderer.shadowMap.enabled = true;
+                this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                this.renderer.fog = new THREE.Fog(0x87CEEB, 1000, 15000);
+                document.getElementById('container').appendChild(this.renderer.domElement);
+
+                // Scene setup
+                this.setupLighting();
+                this.createTerrain();
+                this.createSkybox();
+                this.createF35();
+                this.createClouds();
+                this.setupCamera();
+
+                // Hide loading screen
+                setTimeout(() => {
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('hud').style.display = 'block';
+                }, 2000);
+            }
+
+            setupLighting() {
+                // Ambient light
+                const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+                this.scene.add(ambientLight);
+
+                // Directional light (sun)
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+                directionalLight.position.set(1000, 2000, 1000);
+                directionalLight.castShadow = true;
+                directionalLight.shadow.mapSize.width = 2048;
+                directionalLight.shadow.mapSize.height = 2048;
+                directionalLight.shadow.camera.near = 0.5;
+                directionalLight.shadow.camera.far = 5000;
+                directionalLight.shadow.camera.left = -2000;
+                directionalLight.shadow.camera.right = 2000;
+                directionalLight.shadow.camera.top = 2000;
+                directionalLight.shadow.camera.bottom = -2000;
+                this.scene.add(directionalLight);
+            }
+
+            createTerrain() {
+                // Ground plane
+                const groundGeometry = new THREE.PlaneGeometry(20000, 20000, 100, 100);
+                
+                // Add some terrain variation
+                const vertices = groundGeometry.attributes.position.array;
+                for (let i = 0; i < vertices.length; i += 3) {
+                    vertices[i + 2] = Math.sin(vertices[i] * 0.0005) * Math.sin(vertices[i + 1] * 0.0005) * 50;
+                }
+                groundGeometry.attributes.position.needsUpdate = true;
+                groundGeometry.computeVertexNormals();
+
+                const groundMaterial = new THREE.MeshLambertMaterial({ 
+                    color: 0x4a7c59,
+                    wireframe: false
+                });
+                
+                const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+                ground.rotation.x = -Math.PI / 2;
+                ground.position.y = -500;
+                ground.receiveShadow = true;
+                this.scene.add(ground);
+
+                // Add some buildings/structures
+                this.createBuildings();
+            }
+
+            createBuildings() {
+                const buildingGeometry = new THREE.BoxGeometry(50, 200, 50);
+                const buildingMaterial = new THREE.MeshLambertMaterial({ color: 0x666666 });
+
+                for (let i = 0; i < 50; i++) {
+                    const building = new THREE.Mesh(buildingGeometry, buildingMaterial);
+                    building.position.set(
+                        (Math.random() - 0.5) * 10000,
+                        -400 + Math.random() * 100,
+                        (Math.random() - 0.5) * 10000
+                    );
+                    building.castShadow = true;
+                    building.receiveShadow = true;
+                    this.scene.add(building);
+                }
+            }
+
+            createSkybox() {
+                const skyGeometry = new THREE.SphereGeometry(25000, 32, 32);
+                const skyMaterial = new THREE.MeshBasicMaterial({
+                    color: 0x87CEEB,
+                    side: THREE.BackSide
+                });
+                const skybox = new THREE.Mesh(skyGeometry, skyMaterial);
+                this.scene.add(skybox);
+            }
+
+            createF35() {
+                this.aircraft = new THREE.Group();
+
+                // Main fuselage
+                const fuselageGeometry = new THREE.CylinderGeometry(1, 2.5, 20, 8);
+                const fuselageMaterial = new THREE.MeshLambertMaterial({ color: 0x2c3e50 });
+                const fuselage = new THREE.Mesh(fuselageGeometry, fuselageMaterial);
+                fuselage.rotation.z = Math.PI / 2;
+                fuselage.castShadow = true;
+                this.aircraft.add(fuselage);
+
+                // Cockpit
+                const cockpitGeometry = new THREE.SphereGeometry(1.8, 8, 8);
+                const cockpitMaterial = new THREE.MeshLambertMaterial({ 
+                    color: 0x1a1a1a,
+                    transparent: true,
+                    opacity: 0.7
+                });
+                const cockpit = new THREE.Mesh(cockpitGeometry, cockpitMaterial);
+                cockpit.position.set(7, 0, 0);
+                cockpit.scale.set(1, 0.8, 1);
+                cockpit.castShadow = true;
+                this.aircraft.add(cockpit);
+
+                // Wings
+                const wingGeometry = new THREE.BoxGeometry(12, 0.5, 8);
+                const wingMaterial = new THREE.MeshLambertMaterial({ color: 0x34495e });
+                
+                const leftWing = new THREE.Mesh(wingGeometry, wingMaterial);
+                leftWing.position.set(-2, 0, 6);
+                leftWing.castShadow = true;
+                this.aircraft.add(leftWing);
+
+                const rightWing = new THREE.Mesh(wingGeometry, wingMaterial);
+                rightWing.position.set(-2, 0, -6);
+                rightWing.castShadow = true;
+                this.aircraft.add(rightWing);
+
+                // Vertical stabilizer
+                const tailGeometry = new THREE.BoxGeometry(4, 6, 0.5);
+                const tail = new THREE.Mesh(tailGeometry, wingMaterial);
+                tail.position.set(-8, 2, 0);
+                tail.castShadow = true;
+                this.aircraft.add(tail);
+
+                // Engine intakes
+                const intakeGeometry = new THREE.CylinderGeometry(1.2, 1.5, 3, 8);
+                const intakeMaterial = new THREE.MeshLambertMaterial({ color: 0x1c1c1c });
+                
+                const leftIntake = new THREE.Mesh(intakeGeometry, intakeMaterial);
+                leftIntake.position.set(2, -1, 3);
+                leftIntake.rotation.z = Math.PI / 2;
+                this.aircraft.add(leftIntake);
+
+                const rightIntake = new THREE.Mesh(intakeGeometry, intakeMaterial);
+                rightIntake.position.set(2, -1, -3);
+                rightIntake.rotation.z = Math.PI / 2;
+                this.aircraft.add(rightIntake);
+
+                // Engine nozzle
+                const nozzleGeometry = new THREE.CylinderGeometry(1.5, 1.8, 4, 8);
+                const nozzle = new THREE.Mesh(nozzleGeometry, intakeMaterial);
+                nozzle.position.set(-10, 0, 0);
+                nozzle.rotation.z = Math.PI / 2;
+                this.aircraft.add(nozzle);
+
+                // Landing gear (initially retracted)
+                this.createLandingGear();
+
+                this.aircraft.position.set(0, this.altitude, 0);
+                this.scene.add(this.aircraft);
+            }
+
+            createLandingGear() {
+                this.landingGear = new THREE.Group();
+                
+                // Nose gear
+                const noseGearGeometry = new THREE.CylinderGeometry(0.3, 0.3, 3, 8);
+                const gearMaterial = new THREE.MeshLambertMaterial({ color: 0x444444 });
+                const noseGear = new THREE.Mesh(noseGearGeometry, gearMaterial);
+                noseGear.position.set(5, -3, 0);
+                this.landingGear.add(noseGear);
+
+                // Main gear
+                const mainGear1 = new THREE.Mesh(noseGearGeometry, gearMaterial);
+                mainGear1.position.set(-2, -3, 2);
+                this.landingGear.add(mainGear1);
+
+                const mainGear2 = new THREE.Mesh(noseGearGeometry, gearMaterial);
+                mainGear2.position.set(-2, -3, -2);
+                this.landingGear.add(mainGear2);
+
+                this.landingGear.visible = false;
+                this.aircraft.add(this.landingGear);
+            }
+
+            createClouds() {
+                const cloudGeometry = new THREE.SphereGeometry(100, 8, 8);
+                const cloudMaterial = new THREE.MeshLambertMaterial({ 
+                    color: 0xffffff,
+                    transparent: true,
+                    opacity: 0.6
+                });
+
+                for (let i = 0; i < 20; i++) {
+                    const cloud = new THREE.Mesh(cloudGeometry, cloudMaterial);
+                    cloud.position.set(
+                        (Math.random() - 0.5) * 15000,
+                        Math.random() * 3000 + 1000,
+                        (Math.random() - 0.5) * 15000
+                    );
+                    cloud.scale.set(
+                        Math.random() * 2 + 1,
+                        Math.random() * 0.5 + 0.5,
+                        Math.random() * 2 + 1
+                    );
+                    this.scene.add(cloud);
+                }
+            }
+
+            setupCamera() {
+                this.camera.position.copy(this.aircraft.position);
+                this.camera.position.add(this.cameraOffset);
+                this.camera.lookAt(this.aircraft.position);
+            }
+
+            setupEventListeners() {
+                // Keyboard events
+                document.addEventListener('keydown', (e) => {
+                    this.keys[e.code] = true;
+                    
+                    if (e.code === 'KeyG') {
+                        this.toggleLandingGear();
+                    }
+                });
+
+                document.addEventListener('keyup', (e) => {
+                    this.keys[e.code] = false;
+                });
+
+                // Mouse events
+                document.addEventListener('mousemove', (e) => {
+                    this.mouseX = (e.clientX / window.innerWidth) * 2 - 1;
+                    this.mouseY = -(e.clientY / window.innerHeight) * 2 + 1;
+                });
+
+                // Resize
+                window.addEventListener('resize', () => {
+                    this.camera.aspect = window.innerWidth / window.innerHeight;
+                    this.camera.updateProjectionMatrix();
+                    this.renderer.setSize(window.innerWidth, window.innerHeight);
+                });
+            }
+
+            toggleLandingGear() {
+                this.gearDown = !this.gearDown;
+                this.landingGear.visible = this.gearDown;
+            }
+
+            updateControls() {
+                const pitchInput = (this.keys['KeyS'] ? 1 : 0) - (this.keys['KeyW'] ? 1 : 0);
+                const yawInput = (this.keys['KeyD'] ? 1 : 0) - (this.keys['KeyA'] ? 1 : 0);
+                const rollInput = (this.keys['KeyE'] ? 1 : 0) - (this.keys['KeyQ'] ? 1 : 0);
+                
+                // Throttle control
+                if (this.keys['ShiftLeft']) {
+                    this.throttle = Math.min(100, this.throttle + 2);
+                }
+                if (this.keys['ControlLeft']) {
+                    this.throttle = Math.max(0, this.throttle - 2);
+                }
+
+                // Apply controls with dampening
+                const sensitivity = 0.02;
+                this.angularVelocity.x += pitchInput * sensitivity;
+                this.angularVelocity.y += yawInput * sensitivity;
+                this.angularVelocity.z += rollInput * sensitivity;
+
+                // Apply dampening
+                this.angularVelocity.multiplyScalar(0.95);
+
+                // Update aircraft rotation
+                this.aircraft.rotation.x += this.angularVelocity.x;
+                this.aircraft.rotation.y += this.angularVelocity.y;
+                this.aircraft.rotation.z += this.angularVelocity.z;
+
+                // Limit rotations
+                this.aircraft.rotation.x = THREE.MathUtils.clamp(this.aircraft.rotation.x, -Math.PI/3, Math.PI/3);
+                this.aircraft.rotation.z = THREE.MathUtils.clamp(this.aircraft.rotation.z, -Math.PI/3, Math.PI/3);
+            }
+
+            updatePhysics() {
+                // Calculate speed based on throttle
+                const targetSpeed = (this.throttle / 100) * 800; // Max speed 800 knots
+                this.speed += (targetSpeed - this.speed) * 0.02;
+
+                // Forward movement based on aircraft orientation
+                const forward = new THREE.Vector3(1, 0, 0);
+                forward.applyQuaternion(this.aircraft.quaternion);
+                forward.multiplyScalar(this.speed * 0.1);
+
+                // Apply lift based on speed and angle of attack
+                const lift = Math.max(0, this.speed - 100) * 0.01;
+                const pitchLift = -Math.sin(this.aircraft.rotation.x) * lift;
+
+                // Update velocity
+                this.velocity.add(forward);
+                this.velocity.y += pitchLift;
+
+                // Gravity
+                this.velocity.y -= 0.5;
+
+                // Air resistance
+                this.velocity.multiplyScalar(0.99);
+
+                // Update position
+                this.aircraft.position.add(this.velocity);
+
+                // Ground collision
+                if (this.aircraft.position.y < -450) {
+                    this.aircraft.position.y = -450;
+                    this.velocity.y = 0;
+                    
+                    if (this.speed > 50 && !this.gearDown) {
+                        // Crash
+                        this.speed = 0;
+                        this.throttle = 0;
+                    }
+                }
+
+                this.altitude = Math.max(0, this.aircraft.position.y + 500);
+                
+                // Fuel consumption
+                if (this.throttle > 0) {
+                    this.fuel = Math.max(0, this.fuel - this.throttle * 0.001);
+                }
+            }
+
+            updateCamera() {
+                const idealCameraPosition = new THREE.Vector3();
+                idealCameraPosition.copy(this.cameraOffset);
+                idealCameraPosition.applyQuaternion(this.aircraft.quaternion);
+                idealCameraPosition.add(this.aircraft.position);
+
+                // Smooth camera following
+                this.camera.position.lerp(idealCameraPosition, 0.1);
+                
+                // Look at point slightly ahead of aircraft
+                const lookAtPoint = new THREE.Vector3(10, 0, 0);
+                lookAtPoint.applyQuaternion(this.aircraft.quaternion);
+                lookAtPoint.add(this.aircraft.position);
+                
+                this.camera.lookAt(lookAtPoint);
+            }
+
+            updateHUD() {
+                document.getElementById('speed').textContent = Math.round(this.speed);
+                document.getElementById('altitude').textContent = Math.round(this.altitude);
+                document.getElementById('fuel').textContent = Math.round(this.fuel);
+                document.getElementById('throttle').textContent = Math.round(this.throttle);
+                document.getElementById('pitch').textContent = Math.round(this.aircraft.rotation.x * 180 / Math.PI);
+                document.getElementById('roll').textContent = Math.round(this.aircraft.rotation.z * 180 / Math.PI);
+                document.getElementById('yaw').textContent = Math.round(this.aircraft.rotation.y * 180 / Math.PI);
+                
+                document.getElementById('engine-status').textContent = 
+                    this.throttle > 80 ? 'AFTERBURNER' : 
+                    this.throttle > 20 ? 'MILITARY' : 'IDLE';
+                    
+                document.getElementById('gear-status').textContent = this.gearDown ? 'DOWN' : 'UP';
+            }
+
+            animate() {
+                requestAnimationFrame(() => this.animate());
+
+                this.updateControls();
+                this.updatePhysics();
+                this.updateCamera();
+                this.updateHUD();
+
+                this.renderer.render(this.scene, this.camera);
+            }
+        }
+
+        // Initialize the flight simulator
+        new F35FlightSimulator();
+    </script>
+</body>
+</html>

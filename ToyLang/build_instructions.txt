@@ -1,0 +1,15 @@
+# Install LLVM (Ubuntu/Debian)
+sudo apt-get install llvm-14-dev llvm-14-tools
+
+# Or on macOS with Homebrew
+brew install llvm
+
+# Build the compiler
+mkdir build && cd build
+cmake ..
+make
+
+# Test with a sample program
+echo 'def main() { return 42; }' > test.toy
+./toylang test.toy
+./output
