@@ -8,16 +8,17 @@ import shutil
 import sys
 import msgpack
 from flax import serialization
-import optax # Need for initializing opt_state template
+import optax
 
 # Add current directory to path to import project modules
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
 
 import config
 from train import initialize_models, train_step, save_checkpoint, load_checkpoint, main as train_main_func
+from inference import initialize_empty_models, load_inference_weights
 from models import Encoder, Decoder
 from data_generator import generate_non_overlapping_circles, generate_non_overlapping_squares
-from utils import count_objects # Use the raw numpy count for verification in tests
+from utils import count_objects
 
 
 # --- Helper for comparing Flax parameter trees ---
@@ -85,7 +86,8 @@ def test_checkpointing_and_inference_flow():
         # 2. Test Checkpoint Loading (separate from training's resume logic)
         print("\nTesting Checkpoint Loading Mechanism:")
         rng_key = jax.random.key(100) # Use a new key for loading templates
-        params_circle_template, params_square_template, _, _ = initialize_models(rng_key)
+        params_circle_template, params_square_template, \
+        _, _, _, _ = initialize_models(rng_key) # We only need the param templates here
         
         # Need a dummy opt_state to pass as template for load_checkpoint
         dummy_optimizer = optax.adam(learning_rate=config.LEARNING_RATE)
@@ -107,11 +109,9 @@ def test_checkpointing_and_inference_flow():
 
         # 3. Test Inference After Loading Weights
         print("\nTesting Inference After Loading Weights:")
-        # Import run_inference directly to use its loading and visualization
-        from inference import run_inference, initialize_empty_models, load_inference_weights
-
-        # To test more programmatically without relying on stdout or plotting:
-        params_circle_infer_template, params_square_infer_template, circle_model_infer, square_model_infer = initialize_empty_models()
+        params_circle_infer_template, params_square_infer_template, \
+        circle_encoder_infer, circle_decoder_infer, \
+        square_encoder_infer, square_decoder_infer = initialize_empty_models()
         
         # Load the weights directly for programmatic inference
         params_circle_infer, params_square_infer = load_inference_weights(
@@ -127,14 +127,12 @@ def test_checkpointing_and_inference_flow():
         input_circles_img, num_input_circles = generate_non_overlapping_circles(gen_key_c)
         input_circles_img_batch = jnp.expand_dims(input_circles_img, (0, -1))
 
-        latent_from_circles = circle_model_infer['encoder'].apply({'params': params_circle_infer['encoder']}, input_circles_img_batch)
-        decoded_squares = square_model_infer['decoder'].apply({'params': params_square_infer['decoder']}, latent_from_circles)
+        latent_from_circles = circle_encoder_infer.apply({'params': params_circle_infer['encoder']}, input_circles_img_batch)
+        decoded_squares = square_decoder_infer.apply({'params': params_square_infer['decoder']}, latent_from_circles)
         num_decoded_squares_actual = count_objects(decoded_squares[0, ..., 0])
 
         print(f"Inference C->S: Input Circles={num_input_circles}, Decoded Squares={num_decoded_squares_actual}")
-        # Assert a basic level of correctness - decoded count should not be wildly off or zero for non-empty input
         assert num_decoded_squares_actual >= 0, "Decoded square count should be non-negative."
-        # A short training doesn't guarantee perfect conversion, so a lenient check
         if num_input_circles > 0:
             assert num_decoded_squares_actual > 0, "Decoded squares should be non-zero if input circles are non-zero."
 
@@ -143,8 +141,8 @@ def test_checkpointing_and_inference_flow():
         input_squares_img, num_input_squares = generate_non_overlapping_squares(gen_key_s)
         input_squares_img_batch = jnp.expand_dims(input_squares_img, (0, -1))
 
-        latent_from_squares = square_model_infer['encoder'].apply({'params': params_square_infer['encoder']}, input_squares_img_batch)
-        decoded_circles = circle_model_infer['decoder'].apply({'params': params_circle_infer['decoder']}, latent_from_squares)
+        latent_from_squares = square_encoder_infer.apply({'params': params_square_infer['encoder']}, input_squares_img_batch)
+        decoded_circles = circle_decoder_infer.apply({'params': params_circle_infer['decoder']}, latent_from_squares)
         num_decoded_circles_actual = count_objects(decoded_circles[0, ..., 0])
 
         print(f"Inference S->C: Input Squares={num_input_squares}, Decoded Circles={num_decoded_circles_actual}")
@@ -157,6 +155,7 @@ def test_checkpointing_and_inference_flow():
 
     except Exception as e:
         print(f"\nTest FAILED: {e}")
+        # Fixed the indentation here:
         import traceback
         traceback.print_exc()
     finally:
@@ -164,4 +163,4 @@ def test_checkpointing_and_inference_flow():
 
 
 if __name__ == '__main__':
-    test_checkpointing_and_inference_flow() 
+    test_checkpointing_and_inference_flow()

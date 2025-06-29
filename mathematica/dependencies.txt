@@ -2,3 +2,4 @@
 pip install --upgrade jax[tpu] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
 pip install flax optax
 pip install matplotlib seaborn
+pip install jax jaxlib flax optax scikit-image matplotlib numpy msgpack

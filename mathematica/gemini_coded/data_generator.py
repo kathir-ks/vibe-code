@@ -3,6 +3,7 @@
 import jax
 import jax.numpy as jnp
 from functools import partial
+import numpy as np # Import numpy for item() conversion
 from config import IMG_SIZE, NUM_SHAPES_MIN, NUM_SHAPES_MAX, CIRCLE_RADIUS_MIN, CIRCLE_RADIUS_MAX, \
     SQUARE_SIDE_LENGTH_MIN, SQUARE_SIDE_LENGTH_MAX, MAX_ATTEMPTS_PER_SHAPE, DTYPE
 
@@ -50,60 +51,70 @@ def check_overlap_square(new_square, existing_squares):
             return True
     return False
 
-def generate_non_overlapping_shapes(rng_key, shape_type, img_size):
+def _generate_non_overlapping_shapes_py(rng_key, shape_type, img_size):
     """
-    Generates an image with non-overlapping shapes.
-    shape_type: 'circle' or 'square'
+    Generates an image with non-overlapping shapes (Python loop for placement).
+    This function is NOT JIT-compiled due to dynamic Python control flow.
+    It returns concrete NumPy/Python values for image and count.
     """
     img = jnp.zeros((img_size, img_size), dtype=DTYPE)
     shapes = []
     
     rng_key, num_shapes_key = jax.random.split(rng_key)
-    num_shapes = jax.random.randint(num_shapes_key, (), NUM_SHAPES_MIN, NUM_SHAPES_MAX + 1)
+    # Convert JAX array to Python integer using .item()
+    num_shapes = np.array(jax.random.randint(num_shapes_key, (), NUM_SHAPES_MIN, NUM_SHAPES_MAX + 1)).item()
     
-    keys_for_shapes = jax.random.split(rng_key, num_shapes * 3) # For radius/side, x, y
+    rng_key, *all_shape_keys = jax.random.split(rng_key, num_shapes * 3 + 1)
+    all_shape_keys_iter = list(all_shape_keys)
 
+    actual_placed_shapes = 0
     for i in range(num_shapes):
-        shape_param_key = keys_for_shapes[3*i]
-        pos_x_key = keys_for_shapes[3*i+1]
-        pos_y_key = keys_for_shapes[3*i+2]
+        if 3*i + 2 >= len(all_shape_keys_iter): # Defensive check
+            break
+
+        shape_param_key = all_shape_keys_iter[3*i]
+        pos_x_key = all_shape_keys_iter[3*i+1]
+        pos_y_key = all_shape_keys_iter[3*i+2]
 
         found_place = False
         for attempt in range(MAX_ATTEMPTS_PER_SHAPE):
+            # Generate random parameters for the current shape
             if shape_type == 'circle':
-                radius = jax.random.randint(shape_param_key, (), CIRCLE_RADIUS_MIN, CIRCLE_RADIUS_MAX + 1)
-                center_x = jax.random.randint(pos_x_key, (), radius, img_size - radius + 1)
-                center_y = jax.random.randint(pos_y_key, (), radius, img_size - radius + 1)
+                radius = np.array(jax.random.randint(shape_param_key, (), CIRCLE_RADIUS_MIN, CIRCLE_RADIUS_MAX + 1)).item()
+                center_x = np.array(jax.random.randint(pos_x_key, (), radius, img_size - radius + 1)).item()
+                center_y = np.array(jax.random.randint(pos_y_key, (), radius, img_size - radius + 1)).item()
                 new_shape = (center_x, center_y, radius)
                 if not check_overlap_circle(new_shape, shapes):
                     shapes.append(new_shape)
                     found_place = True
                     break
             elif shape_type == 'square':
-                side_length = jax.random.randint(shape_param_key, (), SQUARE_SIDE_LENGTH_MIN, SQUARE_SIDE_LENGTH_MAX + 1)
-                top_left_x = jax.random.randint(pos_x_key, (), 0, img_size - side_length + 1)
-                top_left_y = jax.random.randint(pos_y_key, (), 0, img_size - side_length + 1)
+                side_length = np.array(jax.random.randint(shape_param_key, (), SQUARE_SIDE_LENGTH_MIN, SQUARE_SIDE_LENGTH_MAX + 1)).item()
+                top_left_x = np.array(jax.random.randint(pos_x_key, (), 0, img_size - side_length + 1)).item()
+                top_left_y = np.array(jax.random.randint(pos_y_key, (), 0, img_size - side_length + 1)).item()
                 new_shape = (top_left_x, top_left_y, side_length)
                 if not check_overlap_square(new_shape, shapes):
                     shapes.append(new_shape)
                     found_place = True
                     break
-        if not found_place:
-            # print(f"Warning: Could not place shape {i+1} of {num_shapes}. Reducing number of actual shapes.")
-            break # Stop trying to place more shapes if it's too hard
+        if found_place:
+            actual_placed_shapes += 1
+        # else:
+            # If not found place, we just skip this shape. No warning needed.
+            # print(f"Warning: Could not place shape {i+1}. Tried {MAX_ATTEMPTS_PER_SHAPE} attempts.")
 
-    final_num_shapes = len(shapes)
+
     drawn_img = jnp.zeros((img_size, img_size), dtype=DTYPE)
-
+    
+    # Use JAX ops for drawing
     if shape_type == 'circle':
-        for cx, cy, r in shapes:
+        for cx, cy, r in shapes: # These are Python ints, passed to JAX ops
             drawn_img = draw_circle(drawn_img, cx, cy, r)
     elif shape_type == 'square':
-        for x, y, s in shapes:
+        for x, y, s in shapes: # These are Python ints, passed to JAX ops
             drawn_img = draw_square(drawn_img, x, y, s)
             
-    return drawn_img, final_num_shapes
+    return drawn_img, actual_placed_shapes
 
-# JIT compile these generation functions for performance
-generate_non_overlapping_circles = jax.jit(partial(generate_non_overlapping_shapes, shape_type='circle', img_size=IMG_SIZE))
-generate_non_overlapping_squares = jax.jit(partial(generate_non_overlapping_shapes, shape_type='square', img_size=IMG_SIZE))
+generate_non_overlapping_circles = partial(_generate_non_overlapping_shapes_py, shape_type='circle', img_size=IMG_SIZE)
+generate_non_overlapping_squares = partial(_generate_non_overlapping_shapes_py, shape_type='square', img_size=IMG_SIZE)

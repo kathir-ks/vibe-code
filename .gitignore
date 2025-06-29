@@ -2,3 +2,4 @@
 __pycache__
 .env
 .gemini_keys
+.gemini/

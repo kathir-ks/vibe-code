@@ -1,0 +1,22 @@
+# JAX for GPU/TPU acceleration
+jax[tpu]
+
+# Neural network library for JAX
+flax
+
+# Gradient processing and optimization library for JAX
+optax
+
+# Plotting library
+matplotlib
+
+# Numerical computing
+numpy
+
+# Serialization library used for checkpoints
+msgpack
+
+# Image processing library for counting objects
+scikit-image
+
+# pip install -U "jax[tpu]" -f https://storage.googleapis.com/jax-releases/ tập_latest

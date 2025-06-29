@@ -16,22 +16,27 @@ from utils import count_objects # Use the raw numpy count for visualization/veri
 
 def initialize_empty_models():
     """Initializes model structures with dummy parameters for loading."""
-    circle_model = {'encoder': Encoder(latent_dim=LATENT_SIZE), 'decoder': Decoder(output_dim=IMG_SIZE)}
-    square_model = {'encoder': Encoder(latent_dim=LATENT_SIZE), 'decoder': Decoder(output_dim=IMG_SIZE)}
+    # Return individual instances here too
+    circle_encoder = Encoder(latent_dim=LATENT_SIZE)
+    circle_decoder = Decoder(output_dim=IMG_SIZE)
+    square_encoder = Encoder(latent_dim=LATENT_SIZE)
+    square_decoder = Decoder(output_dim=IMG_SIZE)
 
     dummy_input = jnp.zeros((1, IMG_SIZE, IMG_SIZE, 1), dtype=DTYPE)
     dummy_latent = jnp.zeros((1, LATENT_SIZE, LATENT_SIZE, 1), dtype=DTYPE)
 
     dummy_key = jax.random.key(0) # Use a dummy key for init to get structure
-    params_circle_encoder_template = circle_model['encoder'].init(dummy_key, dummy_input)['params']
-    params_circle_decoder_template = circle_model['decoder'].init(dummy_key, dummy_latent)['params']
+    params_circle_encoder_template = circle_encoder.init(dummy_key, dummy_input)['params']
+    params_circle_decoder_template = circle_decoder.init(dummy_key, dummy_latent)['params']
     params_circle_template = {'encoder': params_circle_encoder_template, 'decoder': params_circle_decoder_template}
 
-    params_square_encoder_template = square_model['encoder'].init(dummy_key, dummy_input)['params']
-    params_square_decoder_template = square_model['decoder'].init(dummy_key, dummy_latent)['params']
+    params_square_encoder_template = square_encoder.init(dummy_key, dummy_input)['params']
+    params_square_decoder_template = square_decoder.init(dummy_key, dummy_latent)['params']
     params_square_template = {'encoder': params_square_encoder_template, 'decoder': params_square_decoder_template}
 
-    return params_circle_template, params_square_template, circle_model, square_model
+    # Return individual model instances alongside templates
+    return params_circle_template, params_square_template, \
+           circle_encoder, circle_decoder, square_encoder, square_decoder
 
 def load_inference_weights(filepath, params_circle_template, params_square_template):
     """Loads only model parameters from a checkpoint file for inference."""
@@ -45,12 +50,13 @@ def load_inference_weights(filepath, params_circle_template, params_square_templ
     params_circle = serialization.from_state_dict(params_circle_template, decoded['params_circle'])
     params_square = serialization.from_state_dict(params_square_template, decoded['params_square'])
     
-    print(f"Model weights loaded successfully from {filepath}.")
+    print(f"Model weights loaded successfully from {filepath}")
     return params_circle, params_square
 
 def run_inference():
     print("Initializing models for inference...")
-    params_circle_template, params_square_template, circle_model, square_model = initialize_empty_models()
+    params_circle_template, params_square_template, \
+    circle_encoder, circle_decoder, square_encoder, square_decoder = initialize_empty_models()
 
     print(f"Attempting to load weights from: {LAST_CHECKPOINT_PATH}")
     try:
@@ -68,8 +74,8 @@ def run_inference():
     input_circles_img, num_input_circles = generate_non_overlapping_circles(gen_key)
     input_circles_img_batch = jnp.expand_dims(input_circles_img, (0, -1))
 
-    latent_from_circles = circle_model['encoder'].apply({'params': params_circle['encoder']}, input_circles_img_batch)
-    decoded_squares = square_model['decoder'].apply({'params': params_square['decoder']}, latent_from_circles)
+    latent_from_circles = circle_encoder.apply({'params': params_circle['encoder']}, input_circles_img_batch)
+    decoded_squares = square_decoder.apply({'params': params_square['decoder']}, latent_from_circles)
 
     num_decoded_squares_actual = count_objects(decoded_squares[0, ..., 0])
 
@@ -98,8 +104,8 @@ def run_inference():
     input_squares_img, num_input_squares = generate_non_overlapping_squares(gen_key)
     input_squares_img_batch = jnp.expand_dims(input_squares_img, (0, -1))
 
-    latent_from_squares = square_model['encoder'].apply({'params': params_square['encoder']}, input_squares_img_batch)
-    decoded_circles = circle_model['decoder'].apply({'params': params_circle['decoder']}, latent_from_squares)
+    latent_from_squares = square_encoder.apply({'params': params_square['encoder']}, input_squares_img_batch)
+    decoded_circles = circle_decoder.apply({'params': params_circle['decoder']}, latent_from_squares)
 
     num_decoded_circles_actual = count_objects(decoded_circles[0, ..., 0])
 

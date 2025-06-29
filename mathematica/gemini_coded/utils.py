@@ -1,37 +1,47 @@
-# utils.py
-
-import numpy as np
-from skimage.measure import label
-from functools import partial
 import jax
+import jax.numpy as jnp
+import numpy as np
+from scipy.ndimage import label, generate_binary_structure
+from config import DTYPE
 
-def count_objects(image_array, threshold=0.5):
+def count_objects(image_array_np):
     """
-    Counts distinct objects (blobs) in a binary-like image.
-    Uses skimage.measure.label, which is based on NumPy, not JAX.
-    This function should be wrapped with jax.lax.stop_gradient when used in a JAX loss.
+    Counts distinct objects in a binary image using NumPy/SciPy.
+    Expected image_array_np: 2D numpy array (binary or float where 0/1 is clear).
+    This function operates purely on NumPy arrays.
     """
-    binary_img_np = (np.array(image_array) > threshold).astype(np.uint8)
+    # Ensure it's a NumPy array (it should be, as pure_callback converts JAX arrays)
+    if not isinstance(image_array_np, np.ndarray):
+        image_array_np = np.asarray(image_array_np)
 
-    if np.sum(binary_img_np) == 0:
-        return 0
+    # Threshold and convert to uint8 binary image
+    binary_image = (image_array_np > 0.5).astype(np.uint8)
+    
+    # Define an 8-connectivity structure for 2D images
+    s = generate_binary_structure(2, 2)
+    
+    # Label connected components and count them
+    labeled_array, num_features = label(binary_image, structure=s)
+    return num_features
 
-    labeled_img = label(binary_img_np)
-    num_objects = labeled_img.max()
-    return num_objects
-
-# JIT compile the stop_gradient version for usage in loss
-# We don't want to JIT count_objects directly, as it uses numpy/skimage.
-# Instead, we define a JAX-friendly wrapper.
-@partial(jax.jit, static_argnums=(0,))
-def jax_count_objects_stopped_gradient(image_array_jax, threshold=0.5):
+def jax_count_objects_stopped_gradient(jax_image_array):
     """
-    Wrapper for count_objects that uses jax.lax.stop_gradient.
-    This allows the value to be used in the JAX computation graph for loss,
-    but prevents gradients from flowing back through the counting operation.
+    Wraps the NumPy object counting function for use in JAX.
+    It takes a JAX array, passes it to the Python function, and returns a JAX array.
+    The gradient through this operation is stopped implicitly.
     """
-    return jax.lax.stop_gradient(jax.pure_callback(
-        partial(count_objects, threshold=threshold),
-        jax.ShapeDtypeStruct((), jax.numpy.int32), # Output is a single integer
-        image_array_jax
-    ))
+    # Define the shape and dtype of the output that 'count_objects' returns.
+    # It returns a single integer.
+    # --- FIXED: Use jax.ShapeDtypeStruct instead of jax.ShapedArray ---
+    result_shape_dtype = jax.ShapeDtypeStruct((), dtype=jnp.int32) 
+    
+    # Call pure_callback. The first argument is the Python function.
+    # The second argument is the expected shape and dtype of the result.
+    # Subsequent arguments are the *dynamic* JAX arrays to pass to the Python function.
+    count = jax.pure_callback(
+        count_objects, 
+        result_shape_dtype, 
+        jax_image_array, # This is the dynamic JAX array input
+    )
+    
+    return count
