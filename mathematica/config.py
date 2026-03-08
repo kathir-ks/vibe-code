@@ -26,6 +26,9 @@ LAMBDA_SELF = 1.0          # Self-reconstruction (keeps decoders sharp)
 LAMBDA_CROSS = 1.0         # Cross-area-matching (forces count encoding)
 LAMBDA_BINARIZATION = 0.1  # Latent binarization (clean latent space)
 
+# Parallelism
+PMAP_AXIS_NAME = 'devices'
+
 # Checkpointing
 CHECKPOINT_DIR = "./checkpoints"
 

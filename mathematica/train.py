@@ -12,20 +12,28 @@
 #
 #   LATENT path (clean binary latent):
 #     loss = mean(Z * (1 - Z))  where Z = sigmoid(logits)
+#
+# Supports both single-device (JIT) and multi-device (pmap) training.
+# Automatically selects pmap when jax.device_count() > 1 (e.g. TPU v4-8).
 
 import jax
 import jax.numpy as jnp
 import optax
 from flax import serialization
+import flax.jax_utils as flax_utils
 from functools import partial
 import os
 import time
 import argparse
 
 import config as cfg
-from data import generate_training_pair
+from data import generate_training_pair, generate_training_batch
 from models import Encoder, Decoder, binarize_ste
 
+
+# ---------------------------------------------------------------------------
+# Loss function (pure, works under both jit and pmap)
+# ---------------------------------------------------------------------------
 
 def compute_loss(params_A, params_B,
                  circle_img, triangle_img,
@@ -89,12 +97,16 @@ def compute_loss(params_A, params_B,
     return total_loss, metrics
 
 
+# ---------------------------------------------------------------------------
+# Single-device JIT path (fallback for 1 device)
+# ---------------------------------------------------------------------------
+
 @partial(jax.jit, static_argnums=(4, 5, 6, 7, 8))
-def train_step(params_A, params_B, opt_state_A, opt_state_B,
-               enc_A, dec_A, enc_B, dec_B, optimizer_def,
-               circle_img, triangle_img,
-               lambda_self, lambda_cross, lambda_bin):
-    """Single JIT-compiled training step."""
+def train_step_jit(params_A, params_B, opt_state_A, opt_state_B,
+                   enc_A, dec_A, enc_B, dec_B, optimizer_def,
+                   circle_img, triangle_img,
+                   lambda_self, lambda_cross, lambda_bin):
+    """Single JIT-compiled training step (1 device)."""
     grad_fn = jax.value_and_grad(compute_loss, argnums=(0, 1), has_aux=True)
     (loss, metrics), (grads_A, grads_B) = grad_fn(
         params_A, params_B,
@@ -111,6 +123,49 @@ def train_step(params_A, params_B, opt_state_A, opt_state_B,
 
     return params_A, params_B, opt_state_A, opt_state_B, metrics
 
+
+# ---------------------------------------------------------------------------
+# Multi-device pmap path (TPU v4-8: 4 devices)
+# ---------------------------------------------------------------------------
+
+@partial(jax.pmap,
+         axis_name=cfg.PMAP_AXIS_NAME,
+         in_axes=(0, 0, 0, 0,        # params, opt_states (replicated)
+                  0, 0,                # circle_img, triangle_img (sharded)
+                  None, None, None),   # lambda scalars (broadcast)
+         static_broadcasted_argnums=(4, 5, 6, 7, 8))
+def train_step_pmap(params_A, params_B, opt_state_A, opt_state_B,
+                    enc_A, dec_A, enc_B, dec_B, optimizer_def,
+                    circle_img, triangle_img,
+                    lambda_self, lambda_cross, lambda_bin):
+    """Data-parallel training step with gradient averaging across devices."""
+    grad_fn = jax.value_and_grad(compute_loss, argnums=(0, 1), has_aux=True)
+    (loss, metrics), (grads_A, grads_B) = grad_fn(
+        params_A, params_B,
+        circle_img, triangle_img,
+        enc_A, dec_A, enc_B, dec_B,
+        lambda_self, lambda_cross, lambda_bin,
+    )
+
+    # Average gradients across all devices
+    grads_A = jax.lax.pmean(grads_A, axis_name=cfg.PMAP_AXIS_NAME)
+    grads_B = jax.lax.pmean(grads_B, axis_name=cfg.PMAP_AXIS_NAME)
+
+    # Average metrics for consistent logging
+    metrics = jax.lax.pmean(metrics, axis_name=cfg.PMAP_AXIS_NAME)
+
+    updates_A, opt_state_A = optimizer_def.update(grads_A, opt_state_A, params_A)
+    params_A = optax.apply_updates(params_A, updates_A)
+
+    updates_B, opt_state_B = optimizer_def.update(grads_B, opt_state_B, params_B)
+    params_B = optax.apply_updates(params_B, updates_B)
+
+    return params_A, params_B, opt_state_A, opt_state_B, metrics
+
+
+# ---------------------------------------------------------------------------
+# Model init, checkpointing
+# ---------------------------------------------------------------------------
 
 def init_model_params(rng_key):
     """Initialize both models and return params + module instances."""
@@ -159,6 +214,10 @@ def load_checkpoint(path, params_A, params_B, opt_state_A, opt_state_B):
     return data
 
 
+# ---------------------------------------------------------------------------
+# Main training loop
+# ---------------------------------------------------------------------------
+
 def main(num_steps=None, log_interval=None, ckpt_interval=None,
          lr=None, lambda_self=None, lambda_cross=None, lambda_bin=None):
     """Main training loop. Args override config.py defaults when provided."""
@@ -172,15 +231,21 @@ def main(num_steps=None, log_interval=None, ckpt_interval=None,
 
     os.makedirs(cfg.CHECKPOINT_DIR, exist_ok=True)
 
+    # --- Device setup ---
+    num_devices = jax.device_count()
+    use_pmap = num_devices > 1
+
     rng = jax.random.PRNGKey(42)
     rng, init_key = jax.random.split(rng)
 
+    # --- Init models ---
     params_A, params_B, enc_A, dec_A, enc_B, dec_B = init_model_params(init_key)
 
     optimizer = optax.adam(lr)
     opt_state_A = optimizer.init(params_A)
     opt_state_B = optimizer.init(params_B)
 
+    # --- Restore checkpoint (always in unreplicated form) ---
     start_step = 0
     ckpt_path = os.path.join(cfg.CHECKPOINT_DIR, 'latest.msgpack')
     restored = load_checkpoint(ckpt_path, params_A, params_B, opt_state_A, opt_state_B)
@@ -191,57 +256,106 @@ def main(num_steps=None, log_interval=None, ckpt_interval=None,
         opt_state_B = restored['opt_state_B']
         start_step = restored['step']
 
+    # --- Print info ---
     param_count_A = sum(x.size for x in jax.tree.leaves(params_A))
     param_count_B = sum(x.size for x in jax.tree.leaves(params_B))
     print(f"Model A params: {param_count_A:,}")
     print(f"Model B params: {param_count_B:,}")
     print(f"Training from step {start_step} to {num_steps}")
     print(f"Loss weights: self={ls}, cross={lc}, bin={lb}")
-    print(f"JAX devices: {jax.device_count()} x {jax.devices()[0].device_kind}")
+    print(f"JAX devices: {num_devices} x {jax.devices()[0].device_kind}")
+    if use_pmap:
+        print(f"Mode: DATA-PARALLEL (pmap over {num_devices} devices, effective batch={num_devices})")
+    else:
+        print(f"Mode: SINGLE-DEVICE (jit)")
 
-    # Convert loss weights to jax arrays so they're traced consistently
+    # --- Replicate for pmap ---
+    if use_pmap:
+        params_A = flax_utils.replicate(params_A)
+        params_B = flax_utils.replicate(params_B)
+        opt_state_A = flax_utils.replicate(opt_state_A)
+        opt_state_B = flax_utils.replicate(opt_state_B)
+
+    # Loss weight scalars (same for both paths)
     ls_jnp = jnp.float32(ls)
     lc_jnp = jnp.float32(lc)
     lb_jnp = jnp.float32(lb)
 
+    # --- Training loop ---
     t0 = time.time()
+    print("Compiling... (first step will be slow)")
 
     for step in range(start_step, num_steps):
         rng, data_key = jax.random.split(rng)
-        circle_img, triangle_img, count_n = generate_training_pair(data_key)
 
-        circle_batch = circle_img[None, ...]
-        triangle_batch = triangle_img[None, ...]
+        if use_pmap:
+            # Generate one training pair per device
+            circle_batch, triangle_batch, counts = generate_training_batch(
+                data_key, num_devices)
+            count_n = counts[0]
 
-        params_A, params_B, opt_state_A, opt_state_B, metrics = train_step(
-            params_A, params_B, opt_state_A, opt_state_B,
-            enc_A, dec_A, enc_B, dec_B, optimizer,
-            circle_batch, triangle_batch,
-            ls_jnp, lc_jnp, lb_jnp,
-        )
+            params_A, params_B, opt_state_A, opt_state_B, metrics = train_step_pmap(
+                params_A, params_B, opt_state_A, opt_state_B,
+                enc_A, dec_A, enc_B, dec_B, optimizer,
+                circle_batch, triangle_batch,
+                ls_jnp, lc_jnp, lb_jnp,
+            )
+        else:
+            circle_img, triangle_img, count_n = generate_training_pair(data_key)
+            circle_batch = circle_img[None, ...]
+            triangle_batch = triangle_img[None, ...]
 
+            params_A, params_B, opt_state_A, opt_state_B, metrics = train_step_jit(
+                params_A, params_B, opt_state_A, opt_state_B,
+                enc_A, dec_A, enc_B, dec_B, optimizer,
+                circle_batch, triangle_batch,
+                ls_jnp, lc_jnp, lb_jnp,
+            )
+
+        # --- Logging ---
         if (step + 1) % log_interval == 0:
+            # Unreplicate metrics if pmap (all replicas identical due to pmean)
+            m = flax_utils.unreplicate(metrics) if use_pmap else metrics
+
             elapsed = time.time() - t0
             steps_done = step + 1 - start_step
             sps = steps_done / elapsed if elapsed > 0 else 0
             print(
                 f"Step {step+1:>6d} | "
-                f"loss={metrics['total_loss']:.4f} "
-                f"self={metrics['loss_self']:.4f} "
-                f"cross={metrics['loss_cross']:.6f} "
-                f"bin={metrics['loss_bin']:.4f} | "
+                f"loss={m['total_loss']:.4f} "
+                f"self={m['loss_self']:.4f} "
+                f"cross={m['loss_cross']:.6f} "
+                f"bin={m['loss_bin']:.4f} | "
                 f"N={count_n:>2d} "
-                f"area_c={metrics['area_circle_in']:.4f} "
-                f"area_xT={metrics['area_cross_T']:.4f} | "
+                f"area_c={m['area_circle_in']:.4f} "
+                f"area_xT={m['area_cross_T']:.4f} | "
                 f"{sps:.1f} steps/s"
             )
 
+        # --- Checkpointing (always save unreplicated) ---
         if (step + 1) % ckpt_interval == 0:
-            save_checkpoint(params_A, params_B, opt_state_A, opt_state_B,
-                            step + 1, ckpt_path)
+            if use_pmap:
+                save_checkpoint(
+                    flax_utils.unreplicate(params_A),
+                    flax_utils.unreplicate(params_B),
+                    flax_utils.unreplicate(opt_state_A),
+                    flax_utils.unreplicate(opt_state_B),
+                    step + 1, ckpt_path)
+            else:
+                save_checkpoint(params_A, params_B, opt_state_A, opt_state_B,
+                                step + 1, ckpt_path)
 
-    save_checkpoint(params_A, params_B, opt_state_A, opt_state_B,
-                    num_steps, ckpt_path)
+    # --- Final save ---
+    if use_pmap:
+        save_checkpoint(
+            flax_utils.unreplicate(params_A),
+            flax_utils.unreplicate(params_B),
+            flax_utils.unreplicate(opt_state_A),
+            flax_utils.unreplicate(opt_state_B),
+            num_steps, ckpt_path)
+    else:
+        save_checkpoint(params_A, params_B, opt_state_A, opt_state_B,
+                        num_steps, ckpt_path)
     print("Training complete.")
 
 

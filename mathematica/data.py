@@ -204,3 +204,24 @@ def _generate_with_target_count(rng_key, target_n, shape_type, img_size):
                     break
 
     return jnp.array(canvas).reshape(img_size, img_size, 1), count
+
+
+def generate_training_batch(rng_key, num_devices, img_size=IMG_SIZE):
+    """Generate num_devices training pairs, stacked for pmap.
+
+    Returns:
+        circle_batch:   jnp array [num_devices, 1, H, W, 1]
+        triangle_batch: jnp array [num_devices, 1, H, W, 1]
+        counts:         list of int (for logging only)
+    """
+    subkeys = jax.random.split(rng_key, num_devices)
+    circles, triangles, counts = [], [], []
+    for i in range(num_devices):
+        c_img, t_img, n = generate_training_pair(subkeys[i], img_size)
+        circles.append(c_img[None, ...])       # [1, H, W, 1]
+        triangles.append(t_img[None, ...])     # [1, H, W, 1]
+        counts.append(n)
+
+    circle_batch = jnp.stack(circles, axis=0)      # [num_devices, 1, H, W, 1]
+    triangle_batch = jnp.stack(triangles, axis=0)   # [num_devices, 1, H, W, 1]
+    return circle_batch, triangle_batch, counts
