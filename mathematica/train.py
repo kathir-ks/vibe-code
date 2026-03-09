@@ -130,10 +130,10 @@ def train_step_jit(params_A, params_B, opt_state_A, opt_state_B,
 
 @partial(jax.pmap,
          axis_name=cfg.PMAP_AXIS_NAME,
-         in_axes=(0, 0, 0, 0,        # params, opt_states (replicated)
-                  0, 0,                # circle_img, triangle_img (sharded)
-                  None, None, None),   # lambda scalars (broadcast)
-         static_broadcasted_argnums=(4, 5, 6, 7, 8))
+         # 4-8: model instances + optimizer, 11-13: loss weight scalars
+         # All static_broadcasted args are broadcast (not sharded).
+         # Remaining args (0-3: params/opt_state, 9-10: images) default to in_axes=0.
+         static_broadcasted_argnums=(4, 5, 6, 7, 8, 11, 12, 13))
 def train_step_pmap(params_A, params_B, opt_state_A, opt_state_B,
                     enc_A, dec_A, enc_B, dec_B, optimizer_def,
                     circle_img, triangle_img,
@@ -276,7 +276,9 @@ def main(num_steps=None, log_interval=None, ckpt_interval=None,
         opt_state_A = flax_utils.replicate(opt_state_A)
         opt_state_B = flax_utils.replicate(opt_state_B)
 
-    # Loss weight scalars (same for both paths)
+    # Loss weight scalars
+    # pmap path: plain floats (static_broadcasted args must be hashable)
+    # jit path: jnp scalars for tracing
     ls_jnp = jnp.float32(ls)
     lc_jnp = jnp.float32(lc)
     lb_jnp = jnp.float32(lb)
@@ -298,7 +300,7 @@ def main(num_steps=None, log_interval=None, ckpt_interval=None,
                 params_A, params_B, opt_state_A, opt_state_B,
                 enc_A, dec_A, enc_B, dec_B, optimizer,
                 circle_batch, triangle_batch,
-                ls_jnp, lc_jnp, lb_jnp,
+                float(ls), float(lc), float(lb),
             )
         else:
             circle_img, triangle_img, count_n = generate_training_pair(data_key)
