@@ -13,8 +13,8 @@
 #   LATENT path (clean binary latent):
 #     loss = mean(Z * (1 - Z))  where Z = sigmoid(logits)
 #
-# Supports both single-device (JIT) and multi-device (pmap) training.
-# Automatically selects pmap when jax.device_count() > 1 (e.g. TPU v4-8).
+# Supports single-device (JIT), multi-device (pmap), and multihost (pmap) training.
+# Automatically selects pmap when jax.device_count() > 1 (e.g. TPU v4-8, v6e multihost).
 
 import jax
 import jax.numpy as jnp
@@ -221,6 +221,9 @@ def load_checkpoint(path, params_A, params_B, opt_state_A, opt_state_B):
 def main(num_steps=None, log_interval=None, ckpt_interval=None,
          lr=None, lambda_self=None, lambda_cross=None, lambda_bin=None):
     """Main training loop. Args override config.py defaults when provided."""
+    # Initialize distributed runtime (required for multihost TPUs, no-op on single host)
+    jax.distributed.initialize()
+
     num_steps = num_steps or cfg.NUM_TRAINING_STEPS
     log_interval = log_interval or cfg.LOG_INTERVAL
     ckpt_interval = ckpt_interval or cfg.CHECKPOINT_INTERVAL
@@ -232,7 +235,11 @@ def main(num_steps=None, log_interval=None, ckpt_interval=None,
     os.makedirs(cfg.CHECKPOINT_DIR, exist_ok=True)
 
     # --- Device setup ---
-    num_devices = jax.device_count()
+    num_devices = jax.device_count()          # total across all hosts
+    num_local_devices = jax.local_device_count()  # devices on this host
+    num_processes = jax.process_count()       # number of hosts
+    process_idx = jax.process_index()         # this host's index
+    is_main = process_idx == 0
     use_pmap = num_devices > 1
 
     rng = jax.random.PRNGKey(42)
@@ -256,20 +263,24 @@ def main(num_steps=None, log_interval=None, ckpt_interval=None,
         opt_state_B = restored['opt_state_B']
         start_step = restored['step']
 
-    # --- Print info ---
-    param_count_A = sum(x.size for x in jax.tree.leaves(params_A))
-    param_count_B = sum(x.size for x in jax.tree.leaves(params_B))
-    print(f"Model A params: {param_count_A:,}")
-    print(f"Model B params: {param_count_B:,}")
-    print(f"Training from step {start_step} to {num_steps}")
-    print(f"Loss weights: self={ls}, cross={lc}, bin={lb}")
-    print(f"JAX devices: {num_devices} x {jax.devices()[0].device_kind}")
-    if use_pmap:
-        print(f"Mode: DATA-PARALLEL (pmap over {num_devices} devices, effective batch={num_devices})")
-    else:
-        print(f"Mode: SINGLE-DEVICE (jit)")
+    # --- Print info (main process only) ---
+    if is_main:
+        param_count_A = sum(x.size for x in jax.tree.leaves(params_A))
+        param_count_B = sum(x.size for x in jax.tree.leaves(params_B))
+        print(f"Model A params: {param_count_A:,}")
+        print(f"Model B params: {param_count_B:,}")
+        print(f"Training from step {start_step} to {num_steps}")
+        print(f"Loss weights: self={ls}, cross={lc}, bin={lb}")
+        print(f"JAX devices: {num_devices} x {jax.devices()[0].device_kind}")
+        if num_processes > 1:
+            print(f"Mode: MULTIHOST DATA-PARALLEL (pmap over {num_devices} devices "
+                  f"across {num_processes} hosts, {num_local_devices} local)")
+        elif use_pmap:
+            print(f"Mode: DATA-PARALLEL (pmap over {num_devices} devices, effective batch={num_devices})")
+        else:
+            print(f"Mode: SINGLE-DEVICE (jit)")
 
-    # --- Replicate for pmap ---
+    # --- Replicate for pmap (replicates to LOCAL devices in multihost) ---
     if use_pmap:
         params_A = flax_utils.replicate(params_A)
         params_B = flax_utils.replicate(params_B)
@@ -285,15 +296,18 @@ def main(num_steps=None, log_interval=None, ckpt_interval=None,
 
     # --- Training loop ---
     t0 = time.time()
-    print("Compiling... (first step will be slow)")
+    if is_main:
+        print("Compiling... (first step will be slow)")
 
     for step in range(start_step, num_steps):
         rng, data_key = jax.random.split(rng)
 
         if use_pmap:
-            # Generate one training pair per device
+            # Each host generates data for its LOCAL devices only
+            # fold_in with process_idx ensures unique data across hosts
+            local_data_key = jax.random.fold_in(data_key, process_idx)
             circle_batch, triangle_batch, counts = generate_training_batch(
-                data_key, num_devices)
+                local_data_key, num_local_devices)
             count_n = counts[0]
 
             params_A, params_B, opt_state_A, opt_state_B, metrics = train_step_pmap(
@@ -314,8 +328,8 @@ def main(num_steps=None, log_interval=None, ckpt_interval=None,
                 ls_jnp, lc_jnp, lb_jnp,
             )
 
-        # --- Logging ---
-        if (step + 1) % log_interval == 0:
+        # --- Logging (main process only) ---
+        if is_main and (step + 1) % log_interval == 0:
             # Unreplicate metrics if pmap (all replicas identical due to pmean)
             m = flax_utils.unreplicate(metrics) if use_pmap else metrics
 
@@ -334,8 +348,8 @@ def main(num_steps=None, log_interval=None, ckpt_interval=None,
                 f"{sps:.1f} steps/s"
             )
 
-        # --- Checkpointing (always save unreplicated) ---
-        if (step + 1) % ckpt_interval == 0:
+        # --- Checkpointing (main process only, always save unreplicated) ---
+        if is_main and (step + 1) % ckpt_interval == 0:
             if use_pmap:
                 save_checkpoint(
                     flax_utils.unreplicate(params_A),
@@ -347,18 +361,19 @@ def main(num_steps=None, log_interval=None, ckpt_interval=None,
                 save_checkpoint(params_A, params_B, opt_state_A, opt_state_B,
                                 step + 1, ckpt_path)
 
-    # --- Final save ---
-    if use_pmap:
-        save_checkpoint(
-            flax_utils.unreplicate(params_A),
-            flax_utils.unreplicate(params_B),
-            flax_utils.unreplicate(opt_state_A),
-            flax_utils.unreplicate(opt_state_B),
-            num_steps, ckpt_path)
-    else:
-        save_checkpoint(params_A, params_B, opt_state_A, opt_state_B,
-                        num_steps, ckpt_path)
-    print("Training complete.")
+    # --- Final save (main process only) ---
+    if is_main:
+        if use_pmap:
+            save_checkpoint(
+                flax_utils.unreplicate(params_A),
+                flax_utils.unreplicate(params_B),
+                flax_utils.unreplicate(opt_state_A),
+                flax_utils.unreplicate(opt_state_B),
+                num_steps, ckpt_path)
+        else:
+            save_checkpoint(params_A, params_B, opt_state_A, opt_state_B,
+                            num_steps, ckpt_path)
+        print("Training complete.")
 
 
 if __name__ == '__main__':
